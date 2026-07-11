@@ -78,10 +78,10 @@ let star=new Set(JSON.parse(localStorage.getItem(LS.star)||'[]'));
 let con=JSON.parse(localStorage.getItem(LS.con)||'[]');
 let sh=JSON.parse(localStorage.getItem(LS.sh)||'{}');
 const key=r=>r.Piece;
-const save=()=>{localStorage.setItem(LS.star,JSON.stringify([...star]));localStorage.setItem(LS.con,JSON.stringify(con));localStorage.setItem(LS.sh,JSON.stringify(sh));};
+const save=()=>{localStorage.setItem(LS.star,JSON.stringify([...star]));localStorage.setItem(LS.con,JSON.stringify(con));localStorage.setItem(LS.sh,JSON.stringify(sh));if(window.__sync)window.__sync();};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let imported=JSON.parse(localStorage.getItem('kms_imp')||'{}');
-const saveImp=()=>localStorage.setItem('kms_imp',JSON.stringify(imported));
+const saveImp=()=>{localStorage.setItem('kms_imp',JSON.stringify(imported));if(window.__sync)window.__sync();};
 const _b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const _unb64=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(s))));};
 function uniqFrom(k){return [...new Set(CAT.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));}
@@ -185,4 +185,92 @@ function shareSong(k){
  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(function(){toast('Share link copied — paste into WhatsApp (or a new tab) to test');},function(){window.prompt('Share this link:',url);}); }
  else { window.prompt('Share this link:',url); }
 }
+/* ---- Route B: Google sign-in + own-Drive sync + master/user roles (TEST MODE) ---- */
+const AUTH={
+  CLIENT_ID: '338340942516-lju3m0bc9coruem8ia2qa4vi9f1l9900.apps.googleusercontent.com',                                                         /* <-- paste your OAuth Web client ID here */
+  ADMIN_EMAILS: ['uthra78@gmail.com','prabhakar.ranganathan@gmail.com','prabhakar.ranganathan@monash.edu','seshadri.anupama@gmail.com','aravindgomatam19@gmail.com','govindpgomatam@gmail.com'], /* master-keepers (everyone else = user) */
+  SCOPES: 'openid email profile https://www.googleapis.com/auth/drive.file',
+  LIB_FILE: 'keerthana-library.json'
+};
+let AS={token:null,email:null,role:null,fileId:null,tokenClient:null};
+(function(){var s=document.createElement('style');s.textContent="header{position:relative}"
+ +"#authBar{position:absolute;top:14px;right:18px;display:flex;align-items:center;gap:8px;z-index:5}"
+ +"#authBar button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}"
+ +"#authBar .who{color:#fff;opacity:.92;font-size:12px}";document.head.appendChild(s);})();
+let _syncTimer=null;
+window.__sync=function(){ if(!AS.token)return; clearTimeout(_syncTimer); _syncTimer=setTimeout(saveAll,1200); };
+function authInit(){
+  if(!AUTH.CLIENT_ID){ return; }
+  var g=document.createElement('script'); g.src='https://accounts.google.com/gsi/client'; g.async=true;
+  g.onload=function(){
+    AS.tokenClient=google.accounts.oauth2.initTokenClient({client_id:AUTH.CLIENT_ID,scope:AUTH.SCOPES,
+      callback:function(resp){ if(resp&&resp.access_token) onToken(resp.access_token); }});
+    renderAuthBar();
+  };
+  document.head.appendChild(g);
+}
+function authSignIn(){ if(AS.tokenClient) AS.tokenClient.requestAccessToken(); }
+function authSignOut(){ try{ if(AS.token&&window.google&&google.accounts&&google.accounts.oauth2) google.accounts.oauth2.revoke(AS.token,function(){}); }catch(e){} AS.token=null;AS.email=null;AS.role=null;AS.fileId=null; renderAuthBar(); applyRole(); if(window.toast)toast('Signed out'); }
+function onToken(tok){
+  AS.token=tok;
+  fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
+   .then(function(r){return r.json();}).then(function(u){
+     AS.email=u.email||''; var adm=AUTH.ADMIN_EMAILS.map(function(e){return e.toLowerCase();});
+     AS.role=adm.indexOf(AS.email.toLowerCase())>=0?'master':'user';
+     renderAuthBar(); applyRole(); if(window.toast)toast('Signed in: '+AS.email+' ('+AS.role+')'); driveSyncOnLogin();
+   }).catch(function(e){console.log('userinfo err',e);});
+}
+function renderAuthBar(){
+  var bar=document.getElementById('authBar');
+  if(!bar){ bar=document.createElement('div'); bar.id='authBar'; (document.querySelector('header')||document.body).appendChild(bar); }
+  bar.innerHTML = AS.email
+    ? '<span class="who">'+AS.email+' · '+AS.role+'</span><button onclick="authSignOut()">Sign out</button>'
+    : '<button onclick="authSignIn()">Sign in with Google</button>';
+}
+function applyRole(){
+  var bt=document.querySelector('.tabs button[data-tab="browse"]');
+  var isUser=AS.role==='user';
+  if(bt) bt.style.display=isUser?'none':'';
+  if(isUser){ var lib=document.querySelector('.tabs button[data-tab="library"]'); if(lib) lib.click(); }
+}
+function driveHeaders(){ return {Authorization:'Bearer '+AS.token}; }
+function driveFind(){
+  var q=encodeURIComponent("name='"+AUTH.LIB_FILE+"' and trashed=false");
+  return fetch('https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&q='+q,{headers:driveHeaders()})
+    .then(function(r){return r.json();}).then(function(d){return (d.files&&d.files[0])?d.files[0].id:null;});
+}
+function driveGet(id){ return fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:driveHeaders()}).then(function(r){return r.json();}); }
+function driveSyncOnLogin(){
+  driveFind().then(function(id){ AS.fileId=id; return id?driveGet(id):null; })
+   .then(function(remote){ if(remote) mergeIn(remote); saveAll(); rBrowse(); badges(); var t=document.querySelector('.tabs button.active'); if(t&&t.dataset.tab==='library') rLib(); })
+   .catch(function(e){console.log('drive sync err',e);});
+}
+function mergeIn(remote){
+  try{
+    if(remote.imported){ Object.keys(remote.imported).forEach(function(k){ if(!imported[k]) imported[k]=remote.imported[k]; }); }
+    if(remote.star){ remote.star.forEach(function(k){ star.add(k); }); }
+    if(remote.sh){ Object.keys(remote.sh).forEach(function(k){ if(!sh[k]) sh[k]=remote.sh[k]; }); }
+    if(remote.con&&remote.con.length&&!con.length){ con=remote.con; }
+    localStorage.setItem('kms_imp',JSON.stringify(imported));
+    localStorage.setItem(LS.star,JSON.stringify([...star]));
+    localStorage.setItem(LS.con,JSON.stringify(con));
+    localStorage.setItem(LS.sh,JSON.stringify(sh));
+  }catch(e){console.log('merge err',e);}
+}
+function saveAll(){
+  if(!AS.token) return;
+  var payload=JSON.stringify({imported:imported,star:[...star],con:con,sh:sh,updated:new Date().toISOString()});
+  if(AS.fileId){
+    fetch('https://www.googleapis.com/upload/drive/v3/files/'+AS.fileId+'?uploadType=media',
+      {method:'PATCH',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:payload}).catch(function(e){console.log('save err',e);});
+  } else {
+    var b='kms'+Math.random().toString(36).slice(2);
+    var meta=JSON.stringify({name:AUTH.LIB_FILE,mimeType:'application/json'});
+    var body='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+meta+'\r\n--'+b+'\r\nContent-Type: application/json\r\n\r\n'+payload+'\r\n--'+b+'--';
+    fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      {method:'POST',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'multipart/related; boundary='+b},body:body})
+      .then(function(r){return r.json();}).then(function(d){AS.fileId=d.id;}).catch(function(e){console.log('create err',e);});
+  }
+}
+authInit();
 </script></body></html>
