@@ -80,6 +80,10 @@ let sh=JSON.parse(localStorage.getItem(LS.sh)||'{}');
 const key=r=>r.Piece;
 const save=()=>{localStorage.setItem(LS.star,JSON.stringify([...star]));localStorage.setItem(LS.con,JSON.stringify(con));localStorage.setItem(LS.sh,JSON.stringify(sh));};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let imported=JSON.parse(localStorage.getItem('kms_imp')||'{}');
+const saveImp=()=>localStorage.setItem('kms_imp',JSON.stringify(imported));
+const _b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const _unb64=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(s))));};
 function uniqFrom(k){return [...new Set(CAT.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));}
 function buildFilters(){
   [['fRaga','Raga','All ragas'],['fType','Type','All types'],['fComposer','Composer','All composers']].forEach(([id,key,all])=>{
@@ -90,15 +94,17 @@ function buildFilters(){
   });
 }
 buildFilters();
-function card(r){const st=star.has(key(r)),inc=con.includes(key(r));
+function card(r,isImp){const st=star.has(key(r)),inc=con.includes(key(r));
  const link=r.Link?`<a class="iconbtn" href="${esc(r.Link)}" target="_blank" rel="noopener" title="Open notation">📄</a>`:`<span class="iconbtn dis" title="No notation file linked yet">📄</span>`;
  const scale=(r.Aro||r.Av)?`<div class="scale">▲ ${esc(r.Aro)}　▼ ${esc(r.Av)}</div>`:'';
+ const tag=isImp?`<span class="chip" style="background:#e6efe9;color:#2e7d5b">shared with you</span>`:'';
  return `<div class="card"><div class="main">
   <div class="piece">${esc(r.Piece)}</div>
-  <div class="meta">${r.Raga?`<span class="chip raga">${esc(r.Raga)}</span>`:''}${r.Tala?`<span class="chip">${esc(r.Tala)}</span>`:''}${r.Type?`<span class="chip type">${esc(r.Type)}</span>`:''}</div>
+  <div class="meta">${tag}${r.Raga?`<span class="chip raga">${esc(r.Raga)}</span>`:''}${r.Tala?`<span class="chip">${esc(r.Tala)}</span>`:''}${r.Type?`<span class="chip type">${esc(r.Type)}</span>`:''}</div>
   ${r.Composer?`<div class="composer">${esc(r.Composer)}${r.Parent&&r.Parent!==r.Raga?' · mela: '+esc(r.Parent):''}</div>`:''}
   ${scale}</div>
   <div class="acts">
+   <button class="iconbtn share" title="Share to class" onclick="shareSong('${esc(key(r))}')">↗</button>
    <button class="iconbtn ${st?'on':''}" title="Star" onclick="tStar('${esc(key(r))}')">${st?'★':'☆'}</button>
    <button class="iconbtn add" title="${inc?'In concert':'Add to concert'}" onclick="aCon('${esc(key(r))}')">${inc?'✓':'＋'}</button>
    ${link}</div></div>`;}
@@ -108,7 +114,8 @@ function rBrowse(){const q=document.getElementById('q').value.trim().toLowerCase
   if(q)return (r.Piece+' '+r.Raga+' '+r.Composer+' '+r.Type).toLowerCase().includes(q);return 1;});
  count.textContent=`${out.length} of ${CAT.length} songs`;
  list.innerHTML=out.length?out.map(card).join(''):'<div class="empty">No matches.</div>';}
-function rLib(){const out=CAT.filter(r=>star.has(key(r)));libList.innerHTML=out.length?out.map(card).join(''):'<div class="empty">No starred songs yet.</div>';}
+function rLib(){const imp=Object.values(imported);const starred=CAT.filter(r=>star.has(key(r))&&!imported[key(r)]);const out=imp.concat(starred);
+ libList.innerHTML=out.length?out.map(r=>card(r,!!imported[key(r)])).join(''):'<div class="empty">Nothing here yet. Star songs, or open a shared link to add one.</div>';}
 function rCon(){if(!con.length){conList.innerHTML='<div class="empty">Concert is empty. Add songs with ＋ from Browse.</div>';pbody.innerHTML='';return;}
  conList.innerHTML=con.map((k,i)=>{const r=CAT.find(x=>key(x)===k)||{Piece:k};
   return `<div class="citem"><div class="cnum">${i+1}</div><div class="cinfo">
@@ -118,7 +125,7 @@ function rCon(){if(!con.length){conList.innerHTML='<div class="empty">Concert is
    <button class="crm" onclick="rm(${i})">×</button></div>`;}).join('');
  pbody.innerHTML=con.map((k,i)=>{const r=CAT.find(x=>key(x)===k)||{Piece:k};
   return `<tr><td>${i+1}</td><td>${esc(r.Piece)}</td><td>${esc(r.Raga||'')}</td><td>${esc(r.Tala||'')}</td><td>${esc(r.Composer||'')}</td><td>${esc(sh[k]||'')}</td></tr>`;}).join('');}
-function badges(){libBadge.textContent=star.size;conBadge.textContent=con.length;}
+function badges(){const s=new Set([...star,...Object.keys(imported)]);libBadge.textContent=s.size;conBadge.textContent=con.length;}
 function tStar(k){star.has(k)?star.delete(k):star.add(k);save();badges();rBrowse();rLib();}
 function aCon(k){if(!con.includes(k))con.push(k);save();badges();rBrowse();rCon();}
 function rm(i){con.splice(i,1);save();badges();rCon();rBrowse();}
@@ -140,4 +147,42 @@ fetch(CATALOG_URL,{cache:'no-store'})
   .then(r=>r.json())
   .then(d=>{ if(d&&d.songs){ localStorage.setItem('kms_live',JSON.stringify({songs:d.songs,updated:d.updated})); applyCatalog(d.songs); } })
   .catch(e=>{ console.log('Live catalog unavailable, using built-in snapshot.', e); });
+/* ---- demo: Share-to-class + Add-to-my-library (link-based bundles) ---- */
+(function(){
+ const st=document.createElement('style');
+ st.textContent=".iconbtn.share{background:#d98324;border-color:#d98324;color:#fff}"
+  +"#kToast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a221c;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .3s;z-index:60;pointer-events:none;max-width:88%;text-align:center}"
+  +"#kToast.show{opacity:1}"
+  +"#kImp{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}"
+  +"#kImp .box{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.3)}"
+  +"#kImp h3{margin:0 0 4px;color:#7a1f2b;font-size:19px}"
+  +"#kImp .m{color:#8a7d70;font-size:13px;margin-bottom:16px}"
+  +"#kImp .row{display:flex;gap:8px}"
+  +"#kImp button{flex:1;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer}"
+  +"#kImp .go{background:#7a1f2b;color:#fff}#kImp .no{background:#f3e9d6;color:#6b5330}";
+ document.head.appendChild(st);
+ const t=document.createElement('div');t.id='kToast';document.body.appendChild(t);
+ window.toast=function(m){t.textContent=m;t.classList.add('show');clearTimeout(t._x);t._x=setTimeout(function(){t.classList.remove('show');},2800);};
+ const imp=document.createElement('div');imp.id='kImp';
+ imp.innerHTML='<div class="box"><h3 id="kiT"></h3><div class="m" id="kiM"></div><div class="row"><button class="no" id="kiNo">Not now</button><button class="go" id="kiGo">Add to my library</button></div></div>';
+ document.body.appendChild(imp);
+ document.getElementById('kiNo').onclick=function(){imp.style.display='none';};
+ window._showImport=function(rec){
+   document.getElementById('kiT').textContent=rec.Piece;
+   document.getElementById('kiM').textContent=([rec.Raga,rec.Tala,rec.Type,rec.Composer].filter(Boolean).join(' · ')||'a shared song')+' — shared with you';
+   document.getElementById('kiGo').onclick=function(){imported[rec.Piece]=rec;saveImp();badges();imp.style.display='none';toast('Added to your library ✓');var lib=document.querySelector('.tabs button[data-tab="library"]');if(lib)lib.click();};
+   imp.style.display='flex';
+ };
+ var mm=location.search.match(/[?&]add=([^&]+)/);
+ if(mm){ try{ var o=_unb64(decodeURIComponent(mm[1])); var rec={Piece:o.p||'',Composer:o.c||'',Raga:o.r||'',Tala:o.t||'',Type:o.y||'',Link:o.l||'',Aro:o.a||'',Av:o.v||'',Parent:o.m||'',Remarks:''}; if(rec.Piece){ history.replaceState({},'',location.pathname); _showImport(rec);} }catch(e){console.log('bad add link',e);} }
+})();
+function shareSong(k){
+ var r=CAT.find(function(x){return key(x)===k;})||imported[k]; if(!r)return;
+ var payload={p:r.Piece,c:r.Composer,r:r.Raga,t:r.Tala,y:r.Type,l:r.Link,a:r.Aro,v:r.Av,m:r.Parent};
+ var url=location.href.split('?')[0].split('#')[0]+'?add='+_b64(payload);
+ var text='🎵 '+r.Piece+(r.Raga?' — '+r.Raga:'')+'  ·  Keerthana Library';
+ if(navigator.share){ navigator.share({title:r.Piece,text:text,url:url}).catch(function(){}); return; }
+ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(function(){toast('Share link copied — paste into WhatsApp (or a new tab) to test');},function(){window.prompt('Share this link:',url);}); }
+ else { window.prompt('Share this link:',url); }
+}
 </script></body></html>
