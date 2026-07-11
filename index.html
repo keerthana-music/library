@@ -192,7 +192,19 @@ const AUTH={
   SCOPES: 'openid email profile https://www.googleapis.com/auth/drive.file',
   LIB_FILE: 'keerthana-library.json'
 };
-let AS={token:null,email:null,role:null,fileId:null,tokenClient:null};
+let AS={token:null,email:null,role:null,trueRole:null,override:null,fileId:null,tokenClient:null};
+/* ?as=user / ?as=master — role-preview override for testers.
+   Only honoured when the signed-in account is genuinely a master, so an
+   ordinary user cannot self-promote by editing the URL. UI preview only:
+   it does not change Drive access, which stays tied to the real account. */
+function _asOverride(){ try{ var v=new URLSearchParams(location.search).get('as'); return (v==='user'||v==='master')?v:null; }catch(e){ return null; } }
+function _computeRole(email){
+  var adm=AUTH.ADMIN_EMAILS.map(function(e){return e.toLowerCase();});
+  var trueRole=(email&&adm.indexOf(email.toLowerCase())>=0)?'master':'user';
+  var ov=_asOverride();
+  var role=(ov&&trueRole==='master')?ov:trueRole;
+  return {trueRole:trueRole, role:role, override:(role!==trueRole)?ov:null};
+}
 (function(){var s=document.createElement('style');s.textContent="header{position:relative}"
  +"#authBar{position:absolute;top:14px;right:18px;display:flex;align-items:center;gap:8px;z-index:5}"
  +"#authBar button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}"
@@ -215,16 +227,16 @@ function onToken(tok){
   AS.token=tok;
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
    .then(function(r){return r.json();}).then(function(u){
-     AS.email=u.email||''; var adm=AUTH.ADMIN_EMAILS.map(function(e){return e.toLowerCase();});
-     AS.role=adm.indexOf(AS.email.toLowerCase())>=0?'master':'user';
-     renderAuthBar(); applyRole(); if(window.toast)toast('Signed in: '+AS.email+' ('+AS.role+')'); driveSyncOnLogin();
+     AS.email=u.email||''; var rc=_computeRole(AS.email);
+     AS.trueRole=rc.trueRole; AS.role=rc.role; AS.override=rc.override;
+     renderAuthBar(); applyRole(); if(window.toast)toast('Signed in: '+AS.email+' ('+AS.role+(AS.override?' · preview':'')+')'); driveSyncOnLogin();
    }).catch(function(e){console.log('userinfo err',e);});
 }
 function renderAuthBar(){
   var bar=document.getElementById('authBar');
   if(!bar){ bar=document.createElement('div'); bar.id='authBar'; (document.querySelector('header')||document.body).appendChild(bar); }
   bar.innerHTML = AS.email
-    ? '<span class="who">'+AS.email+' · '+AS.role+'</span><button onclick="authSignOut()">Sign out</button>'
+    ? '<span class="who">'+AS.email+' · '+AS.role+(AS.override?' · preview':'')+'</span><button onclick="authSignOut()">Sign out</button>'
     : '<button onclick="authSignIn()">Sign in with Google</button>';
 }
 function applyRole(){
