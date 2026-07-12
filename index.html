@@ -244,7 +244,8 @@ const AUTH={
   LIB_FILE: 'keerthana-library.json',
   PICKER_KEY: 'AIzaSyBkNHClBkhA68Tx3xy3evfdHVThGa8iPA8', /* Google Picker API browser key (referrer-restricted) */
   APP_ID: '338340942516',                               /* Cloud project number, for the Picker */
-  ARCHIVE_ROOT: 'Keerthana Archive'                     /* app-created root folder in the user's own Drive */
+  ARCHIVE_ROOT: 'Keerthana Archive',                    /* app-created root folder in the user's own Drive */
+  TRASH_NAME: 'Keerthana — marked for deletion'         /* soft-delete holding folder (admins empty it in Drive later) */
 };
 let AS={token:null,email:null,role:null,maxRole:null,fileId:null,tokenClient:null};
 /* ?as=user / ?as=master — role-preview override for testers.
@@ -408,6 +409,7 @@ function _indexCard(it){
     +'<button class="iconbtn share" title="Share" onclick="shareBundle(\''+esc(fid)+'\')">↗</button>'
     +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId(\''+esc(fid)+'\')">'+(st?'★':'☆')+'</button>'
     +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle(\''+tq+'\')">'+(inc?'✓':'＋')+'</button>'
+    +'<button class="iconbtn" title="Edit / remove" onclick="openEdit(\''+esc(fid)+'\')">✎</button>'
     +_indexNotation(it.notationId)+'</div></div>';
 }
 function _driveView(id){ return 'https://drive.google.com/file/d/'+id+'/view'; }
@@ -857,6 +859,76 @@ function walkImportFolder(folderId,cb){
     })();
   };
   window._impRows=function(rws,skipped){ rows=rws; _skipped=skipped||0; render(); m.style.display='flex'; };
+})();
+/* ---- Edit details + soft-delete (Remove from archive) ---- */
+var _editId=null;
+function _editRoot(){ return onMaster()?_masterRoot:_arcRoot; }
+function driveUpdateBundleJson(folderId,obj){
+  return driveListChildren(folderId).then(function(files){
+    var bj=(files||[]).filter(function(f){return f.name==='bundle.json';})[0];
+    if(bj) return fetch('https://www.googleapis.com/upload/drive/v3/files/'+bj.id+'?uploadType=media',{method:'PATCH',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:JSON.stringify(obj,null,2)}).then(function(){return bj.id;});
+    return driveWriteJson('bundle.json',obj,folderId);
+  });
+}
+function removeFromIndex(rootId,id){ return readIndex(rootId).then(function(idx){ var items=((idx&&idx.items)||[]).filter(function(x){return x.id!==id;}); return writeIndex(rootId,items); }); }
+function _driveParent(fileId){ return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?fields=parents',{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){return (d.parents&&d.parents[0])||null;}); }
+function ensureTrashFolder(rootId){ return _driveParent(rootId).then(function(par){ return driveEnsureFolder(AUTH.TRASH_NAME, par||undefined); }); }
+window.openEdit=function(fid){
+  var idx=onMaster()?_masterIdx:_arcIdx; var it=(idx&&idx.items)?idx.items.find(function(x){return x.id===fid;}):null;
+  if(!it){ toast('Item not found'); return; }
+  _editId=fid;
+  document.getElementById('edTitle').value=it.title||'';
+  document.getElementById('edRaga').value=it.raga||'';
+  document.getElementById('edTala').value=it.tala||'';
+  document.getElementById('edComposer').value=it.composer||'';
+  document.getElementById('edType').value=it.pieceType||'';
+  document.getElementById('kEdit').style.display='flex';
+};
+function _editSave(){
+  var root=_editRoot(); if(!root){ toast('Open the archive first'); return; } var id=_editId;
+  var g=function(f){return ((document.getElementById(f)||{}).value||'').trim();};
+  var btn=document.getElementById('edSave'); btn.disabled=true; btn.textContent='Saving…';
+  readBundle(id).then(function(b){
+    var meta=(b&&b.meta)||{schema:'kms-bundle/1',type:'piece',id:id,files:[],items:[]};
+    meta.type=meta.type||'piece'; meta.title=g('edTitle'); meta.meta=meta.meta||{};
+    meta.meta.raga=g('edRaga'); meta.meta.tala=g('edTala'); meta.meta.composer=g('edComposer'); meta.meta.pieceType=g('edType');
+    meta.updated=new Date().toISOString();
+    return driveUpdateBundleJson(id,meta);
+  }).then(function(){ return addToIndex(root,id); })
+    .then(function(){ _masterIdx=null;_arcIdx=null; btn.disabled=false; btn.textContent='Save'; document.getElementById('kEdit').style.display='none'; toast('Saved ✓'); var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
+    .catch(function(e){ console.log('edit save err',e); btn.disabled=false; btn.textContent='Save'; toast('Save failed — see console'); });
+}
+function _editRemove(){
+  if(!window.confirm('Move this piece out of the archive into “'+AUTH.TRASH_NAME+'”?\nIt is NOT deleted — you can remove it permanently from Drive later.')) return;
+  var root=_editRoot(); var id=_editId;
+  ensureTrashFolder(root).then(function(trashId){ return driveMoveInto(id,trashId); })
+    .then(function(){ return removeFromIndex(root,id); })
+    .then(function(){ _masterIdx=null;_arcIdx=null; document.getElementById('kEdit').style.display='none'; toast('Moved to “'+AUTH.TRASH_NAME+'”'); var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
+    .catch(function(e){ console.log('remove err',e); toast('Remove failed — see console'); });
+}
+(function(){
+  var css=document.createElement('style');
+  css.textContent="#kEdit{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:59;padding:16px}"
+   +"#kEdit .box{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-height:90vh;overflow:auto}"
+   +"#kEdit h3{margin:0 0 12px;color:#7a1f2b;font-size:19px}"
+   +"#kEdit label{display:block;font-size:12px;color:#8a7d70;margin:10px 0 3px}"
+   +"#kEdit input{width:100%;border:1px solid #e7ddcc;border-radius:9px;padding:9px 10px;font-size:14px;color:#2a221c;background:#fff}"
+   +"#kEdit .row{display:flex;gap:8px;margin-top:16px}#kEdit .row button{flex:1;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer}"
+   +"#kEdit .go{background:#7a1f2b;color:#fff}#kEdit .no{background:#f3e9d6;color:#6b5330}#kEdit .rm{background:#fff;color:#b23;border:1px solid #e7c3c3}";
+  document.head.appendChild(css);
+  var m=document.createElement('div'); m.id='kEdit';
+  m.innerHTML='<div class="box"><h3>Edit piece</h3>'
+   +'<label>Piece</label><input id="edTitle">'
+   +'<label>Raga</label><input id="edRaga">'
+   +'<label>Tala</label><input id="edTala">'
+   +'<label>Composer</label><input id="edComposer">'
+   +'<label>Type</label><input id="edType">'
+   +'<div class="row"><button class="no" id="edCancel">Cancel</button><button class="go" id="edSave">Save</button></div>'
+   +'<div class="row"><button class="rm" id="edRemove">Remove from archive</button></div></div>';
+  document.body.appendChild(m);
+  document.getElementById('edCancel').onclick=function(){ document.getElementById('kEdit').style.display='none'; };
+  document.getElementById('edSave').onclick=_editSave;
+  document.getElementById('edRemove').onclick=_editRemove;
 })();
 /* ---- Admin/User role chooser (shown to admin-eligible accounts at sign-in) ---- */
 (function(){
