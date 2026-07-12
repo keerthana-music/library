@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Keerthana Repertoire Library</title>
+<title>Keerthana Archive</title>
 <style>
 :root{--maroon:#7a1f2b;--saffron:#d98324;--cream:#fbf6ec;--ink:#2a221c;--muted:#8a7d70;--line:#e7ddcc;--chip:#f3e9d6;--ok:#2e7d5b}
 *{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--cream);color:var(--ink);-webkit-text-size-adjust:100%}
@@ -40,10 +40,13 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 @media print{header,.tabs,.controls,.count,.acts,#view-browse,#view-library,.cbar,.note,.move,.crm,.cinfo input,#conList{display:none!important}
  .wrap{max-width:100%}#printhead,#ptable{display:block!important}#ptable{display:table!important}}
 #printhead{display:none;text-align:center;margin-bottom:12px}
+#view-landing .landing{background:#fff;border:1px solid var(--line);border-radius:16px;padding:36px 24px;text-align:center;margin-top:10px}
+#view-landing .landing h2{color:var(--maroon);margin:0 0 8px;font-size:22px}
+#view-landing .landing p{color:var(--muted);font-size:14px;max-width:430px;margin:0 auto 18px;line-height:1.5}
 </style></head><body>
-<header><h1>Keerthana Repertoire Library</h1>
+<header><h1>Keerthana Archive</h1>
 <div class="sub">Search the class song bank · open the notation · build & print your concert order</div>
-<div class="tabs">
+<div class="tabs" style="display:none">
 <button data-tab="browse" class="active">Browse</button>
 <button data-tab="library">My Library <span class="badge" id="libBadge">0</span></button>
 <button data-tab="concert">Concert <span class="badge" id="conBadge">0</span></button>
@@ -51,7 +54,12 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 <div class="wrap">
 <div id="printhead"><div style="font-size:20px;font-weight:700;color:#7a1f2b">Concert Running Order</div><div style="font-size:12px;color:#888" id="printdate"></div></div>
 <table id="ptable"><thead><tr><th>#</th><th>Piece</th><th>Ragam</th><th>Talam</th><th>Composer</th><th>Shruthi</th></tr></thead><tbody id="pbody"></tbody></table>
-<div id="view-browse">
+<div id="view-landing">
+ <div class="landing"><h2>The Keerthana Archive</h2>
+  <p>The song bank, notations and recordings of Keerthana Music School. Sign in to browse the repertoire and build your own library.</p>
+  <button class="barbtn primary" onclick="authSignIn()">Sign in with Google</button></div>
+</div>
+<div id="view-browse" style="display:none">
  <div class="controls">
   <input id="q" placeholder="Search piece, raga, composer…">
   <select id="fRaga"><option value="">All ragas</option></select>
@@ -225,14 +233,15 @@ function authInit(){
   document.head.appendChild(g);
 }
 function authSignIn(){ if(AS.tokenClient) AS.tokenClient.requestAccessToken(); }
-function authSignOut(){ try{ if(AS.token&&window.google&&google.accounts&&google.accounts.oauth2) google.accounts.oauth2.revoke(AS.token,function(){}); }catch(e){} AS.token=null;AS.email=null;AS.role=null;AS.fileId=null; renderAuthBar(); applyRole(); if(window.toast)toast('Signed out'); }
+/* Sign out clears local state only (no token revoke), so signing back in doesn't re-prompt for consent every time. */
+function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.trueRole=null;AS.override=null;AS.fileId=null; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
 function onToken(tok){
   AS.token=tok;
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
    .then(function(r){return r.json();}).then(function(u){
      AS.email=u.email||''; var rc=_computeRole(AS.email);
      AS.trueRole=rc.trueRole; AS.role=rc.role; AS.override=rc.override;
-     renderAuthBar(); applyRole(); if(window.toast)toast('Signed in: '+AS.email+' ('+AS.role+(AS.override?' · preview':'')+')'); driveSyncOnLogin();
+     renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed in: '+AS.email+' ('+AS.role+(AS.override?' · preview':'')+')'); driveSyncOnLogin();
    }).catch(function(e){console.log('userinfo err',e);});
 }
 function renderAuthBar(){
@@ -247,6 +256,18 @@ function applyRole(){
   var isUser=AS.role==='user';
   if(bt) bt.style.display=isUser?'none':'';
   if(isUser){ var lib=document.querySelector('.tabs button[data-tab="library"]'); if(lib) lib.click(); }
+}
+/* Signed out → landing page; signed in → tabs + role-appropriate default view (master: Browse, user: My Library). */
+function applyAuthView(){
+  var signedIn=!!AS.email;
+  var landing=document.getElementById('view-landing');
+  var tabs=document.querySelector('.tabs');
+  if(landing) landing.style.display=signedIn?'none':'';
+  if(tabs) tabs.style.display=signedIn?'':'none';
+  if(!signedIn){ ['view-browse','view-library','view-concert'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; }); return; }
+  applyRole();
+  var def=(AS.role==='user')?'library':'browse';
+  var b=document.querySelector('.tabs button[data-tab="'+def+'"]'); if(b) b.click();
 }
 function driveHeaders(){ return {Authorization:'Bearer '+AS.token}; }
 /* ---- kms-bundle/1 reader (see SCHEMA.md): read a bundle folder, recurse into child bundles.
@@ -449,4 +470,5 @@ function createBundle(rootId,spec){
   };
 })();
 authInit();
+applyAuthView();
 </script></body></html>
