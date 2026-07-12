@@ -339,6 +339,50 @@ function scanArchive(){
     });
   });
 }
+/* ---- index.json layer: an app-maintained aggregate catalogue of an archive root's bundles.
+   Same mechanism for a personal archive and (next) the master. bundle.json stays source of truth. ---- */
+function _notationFileId(tree){ var f=(tree.files||[]).filter(function(x){return x.name!=='bundle.json'&&x.mimeType!=='application/vnd.google-apps.folder';})[0]; return f?f.id:''; }
+function _indexItem(tree){ var m=tree.meta||{},mm=m.meta||{};
+  return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),
+    children:(tree.children||[]).map(function(c){var cm=c.meta||{};return {id:c.folderId,type:c.type,label:cm.label||cm.title||c.type,notationId:_notationFileId(c)};})};
+}
+function buildIndexItems(rootId){
+  return driveListChildren(rootId).then(function(files){
+    var folders=files.filter(function(f){return f.mimeType==='application/vnd.google-apps.folder';});
+    return Promise.all(folders.map(function(f){return scanBundle(f.id);})).then(function(trees){ return trees.filter(Boolean).map(_indexItem); });
+  });
+}
+function findIndexFile(rootId){
+  var q="name='index.json' and '"+rootId+"' in parents and trashed=false";
+  return fetch('https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q='+encodeURIComponent(q),{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){return (d.files&&d.files[0])?d.files[0].id:null;});
+}
+function writeIndex(rootId,items){
+  var obj={schema:'kms-index/1',root:rootId,updated:new Date().toISOString(),items:items};
+  return findIndexFile(rootId).then(function(fid){
+    if(fid) return fetch('https://www.googleapis.com/upload/drive/v3/files/'+fid+'?uploadType=media',{method:'PATCH',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:JSON.stringify(obj)}).then(function(){return obj;});
+    return driveWriteJson('index.json',obj,rootId).then(function(){return obj;});
+  });
+}
+function readIndex(rootId){ return findIndexFile(rootId).then(function(fid){ return fid?driveReadJson(fid):null; }); }
+function ensureIndex(rootId){ return readIndex(rootId).then(function(idx){ if(idx&&idx.items) return idx; return buildIndexItems(rootId).then(function(items){ return writeIndex(rootId,items); }); }); }
+function refreshIndex(rootId){ return buildIndexItems(rootId).then(function(items){ return writeIndex(rootId,items); }); }
+function addToIndex(rootId,topId){ return Promise.all([readIndex(rootId),scanBundle(topId)]).then(function(a){
+  var idx=a[0]||{items:[]}, tree=a[1]; if(!tree) return idx;
+  var item=_indexItem(tree); var items=(idx.items||[]).filter(function(x){return x.id!==item.id;}); items.push(item);
+  return writeIndex(rootId,items); }); }
+function _indexNotation(nid){ return nid?'<a class="iconbtn" href="https://drive.google.com/file/d/'+nid+'/view" target="_blank" rel="noopener" title="Open">📄</a>':''; }
+function _indexCard(it){
+  var fid=it.id, title=it.title||'(untitled)', st=star.has(fid), inc=con.includes(title), tq=esc(title).replace(/'/g,"\\'");
+  var chips=(it.raga?'<span class="chip raga">'+esc(it.raga)+'</span>':'')+(it.tala?'<span class="chip">'+esc(it.tala)+'</span>':'')+(it.type&&it.type!=='piece'?'<span class="chip type">'+esc(it.type)+'</span>':'');
+  var comp=it.composer?'<div class="composer">'+esc(it.composer)+'</div>':'';
+  var kids=(it.children||[]).map(function(c){ return '<div class="subitem">'+_childIcon(c.type)+' <span>'+esc(c.label||c.type)+'</span>'+_indexNotation(c.notationId)+'</div>'; }).join('');
+  return '<div class="card"><div class="main"><div class="piece">'+esc(title)+'</div><div class="meta">'+chips+'</div>'+comp+(kids?'<div class="subs">'+kids+'</div>':'')+'</div>'
+    +'<div class="acts">'
+    +'<button class="iconbtn share" title="Share" onclick="shareBundle(\''+esc(fid)+'\')">↗</button>'
+    +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId(\''+esc(fid)+'\')">'+(st?'★':'☆')+'</button>'
+    +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle(\''+tq+'\')">'+(inc?'✓':'＋')+'</button>'
+    +_indexNotation(it.notationId)+'</div></div>';
+}
 function _driveView(id){ return 'https://drive.google.com/file/d/'+id+'/view'; }
 function _notationLink(tree){
   var f=(tree.files||[]).filter(function(x){return x.name!=='bundle.json'&&x.mimeType!=='application/vnd.google-apps.folder';})[0];
@@ -367,14 +411,12 @@ function rArchive(){
   var host=document.getElementById('arcList'); if(!host) return;
   if(!AS.token){ host.innerHTML='<div class="empty">Sign in to see your archive.</div>'; return; }
   host.innerHTML='<div class="empty">Loading your archive…</div>';
-  scanArchive().then(function(res){
+  ensureArchiveRoot().then(function(rootId){ return ensureIndex(rootId); }).then(function(idx){
+    var items=(idx&&idx.items)||[];
     var q=((document.getElementById('qArc')||{}).value||'').trim().toLowerCase();
-    var items=res.bundles.filter(function(t){ var m=t.meta||{},mm=m.meta||{};
-      if(favOnly&&!star.has(t.folderId))return false;
-      if(q) return (((m.title||'')+' '+(mm.raga||'')+' '+(mm.composer||'')).toLowerCase().indexOf(q)>=0);
-      return true; });
-    host.innerHTML=items.length?items.map(_bundleCard).join('')
-      :'<div class="empty">'+(res.bundles.length?'No matches.':'Nothing in your archive yet. Use ＋ Add to bring in notation, audio, or notes.')+'</div>';
+    var out=items.filter(function(it){ if(favOnly&&!star.has(it.id))return false; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')).toLowerCase().indexOf(q)>=0); return true; });
+    host.innerHTML=out.length?out.map(_indexCard).join('')
+      :'<div class="empty">'+(items.length?'No matches.':'Nothing in your archive yet. Use ＋ Add to bring in notation, audio, or notes.')+'</div>';
   }).catch(function(e){ console.log('archive err',e); host.innerHTML='<div class="empty">Could not load your archive — see console.</div>'; });
 }
 function rResources(){
@@ -506,7 +548,7 @@ function createBundle(rootId,spec){
     return driveEnsureFolder(safeName(spec.title||(spec.type+'-'+Date.now())),pid).then(function(cid){
       var meta={schema:'kms-bundle/1',type:spec.type,title:spec.title||spec.type,id:cid,label:spec.label||'',
         meta:spec.meta||{},files:spec.fileName?[spec.fileName]:[],items:[],updated:new Date().toISOString()};
-      return (spec.fileId?driveMoveInto(spec.fileId,cid):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,cid);}).then(function(){return cid;});
+      return (spec.fileId?driveMoveInto(spec.fileId,cid):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,cid);}).then(function(){return pid;});
     });
   });
 }
@@ -554,7 +596,8 @@ function createBundle(rootId,spec){
     }
     var go=document.getElementById('kaGo'); go.textContent='Creating…'; go.disabled=true;
     createBundle(_targetRoot,spec)
-      .then(function(){ toast(AS.role==='master'?'Added to the master archive ✓ — re-sync the INDEX to catalogue it':'Added to your archive ✓'); m.style.display='none'; if(AS.role!=='master'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } })
+      .then(function(topId){ return addToIndex(_targetRoot,topId); })
+      .then(function(){ toast(AS.role==='master'?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; if(AS.role!=='master'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } })
       .catch(function(e){ console.log('add err',e); toast('Could not add — see console'); })
       .then(function(){ go.textContent='Create bundle'; go.disabled=false; });
   };
