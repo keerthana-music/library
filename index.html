@@ -287,7 +287,8 @@ function renderAuthBar(){
   if(AS.email){
     var label=AS.role?(AS.role==='master'?'Admin':'User'):'…';
     var sw=AS.isAdmin?'<button onclick="showRoleChooser()" title="Switch role">⇄</button>':'';
-    bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button><button onclick="openImport()">⇪ Import</button>':'')+sw+'<button onclick="authSignOut()">Sign out</button>';
+    var mf=(AS.role==='master')?'<button onclick="changeMasterFolder()" title="Change the master archive folder">⌂ Master folder</button>':'';
+    bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button><button onclick="openImport()">⇪ Import</button>':'')+mf+sw+'<button onclick="authSignOut()">Sign out</button>';
   } else {
     bar.innerHTML='<button onclick="authSignIn()">Sign in with Google</button>';
   }
@@ -477,7 +478,10 @@ function rMaster(){
     var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, fta=fTala.value, ft=fType.value, fc=fComposer.value;
     var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(fta&&it.tala!==fta)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0); return 1; });
     document.getElementById('count').textContent=out.length+' of '+items.length+' pieces';
-    host.innerHTML=out.length?out.map(_indexCard).join(''):'<div class="empty">No matches.</div>';
+    if(out.length){ host.innerHTML=out.map(_indexCard).join(''); }
+    else if(!items.length){ var mr=null; try{ mr=JSON.parse(localStorage.getItem(MASTER_ROOT_KEY)||'null'); }catch(e){}
+      host.innerHTML='<div class="empty">No pieces found in the selected master folder'+(mr&&mr.name?' “'+esc(mr.name)+'”':'')+'.<br>If that isn\'t the right folder, click <b>⌂ Master folder</b> in the top bar and choose the <b>MASTER</b> subfolder — the one that directly contains the song folders.</div>'; }
+    else { host.innerHTML='<div class="empty">No matches.</div>'; }
   });
 }
 function driveFind(){
@@ -584,7 +588,17 @@ function openFolderPicker(title,onPick){
 function resolveMasterRoot(cb){
   var stored=null; try{ stored=JSON.parse(localStorage.getItem(MASTER_ROOT_KEY)||'null'); }catch(e){}
   if(stored&&stored.id) return cb(stored.id);
-  openFolderPicker('Select the MASTER archive folder (one-time)',function(f){ localStorage.setItem(MASTER_ROOT_KEY,JSON.stringify(f)); toast('Master folder set: '+f.name); cb(f.id); });
+  openFolderPicker('Select the MASTER archive folder — the one that directly contains the song folders',function(f){ localStorage.setItem(MASTER_ROOT_KEY,JSON.stringify(f)); toast('Master folder set: '+f.name); cb(f.id); });
+}
+/* Admin: forget the current master folder and pick a new one (e.g. if the wrong folder was
+   chosen). Clears the cache + stored root, re-opens the Picker, then reloads the Admin Archive. */
+function changeMasterFolder(){
+  _masterIdx=null; _masterRoot=null;
+  openFolderPicker('Select the MASTER archive folder — the one that directly contains the song folders',function(f){
+    localStorage.setItem(MASTER_ROOT_KEY,JSON.stringify(f)); _masterIdx=null; _masterRoot=f.id;
+    toast('Master folder set: '+f.name);
+    var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click();
+  });
 }
 /* Admin → the shared master folder (picked once, remembered); User → personal archive root. */
 function resolveTargetRoot(cb){ if(AS.role==='master') resolveMasterRoot(cb); else ensureArchiveRoot().then(function(id){ cb(id); }); }
