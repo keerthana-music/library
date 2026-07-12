@@ -246,6 +246,38 @@ function applyRole(){
   if(isUser){ var lib=document.querySelector('.tabs button[data-tab="library"]'); if(lib) lib.click(); }
 }
 function driveHeaders(){ return {Authorization:'Bearer '+AS.token}; }
+/* ---- kms-bundle/1 reader (see SCHEMA.md): read a bundle folder, recurse into child bundles.
+   Works on folders this app can access under drive.file: ones it created, or ones the user
+   picked via the Google Picker. Returns null for a folder with no bundle.json. ---- */
+function driveListChildren(folderId){
+  var q=encodeURIComponent("'"+folderId+"' in parents and trashed=false");
+  return fetch('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id,name,mimeType)&pageSize=1000',{headers:driveHeaders()})
+    .then(function(r){return r.json();}).then(function(j){return (j&&j.files)||[];});
+}
+function driveReadJson(fileId){
+  return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?alt=media',{headers:driveHeaders()})
+    .then(function(r){return r.json();});
+}
+/* Read one bundle's label + file listing from a folder; null if it isn't a bundle. */
+function readBundle(folderId){
+  return driveListChildren(folderId).then(function(files){
+    var lbl=files.filter(function(f){return f.name==='bundle.json';})[0];
+    if(!lbl) return null;
+    return driveReadJson(lbl.id).then(function(meta){ return {folderId:folderId, meta:meta, files:files}; });
+  });
+}
+/* Recursively scan a bundle into a tree {folderId,type,meta,children[]}.
+   Only sub-folders that are themselves bundles (have a bundle.json) become children;
+   unlabelled sub-folders and loose files are ignored, per the SCHEMA scanner rule. */
+function scanBundle(folderId){
+  return readBundle(folderId).then(function(b){
+    if(!b) return null;
+    var subs=b.files.filter(function(f){return f.mimeType==='application/vnd.google-apps.folder';});
+    return Promise.all(subs.map(function(f){return scanBundle(f.id);})).then(function(kids){
+      return {folderId:folderId, type:(b.meta&&b.meta.type)||'', meta:b.meta, files:b.files, children:kids.filter(Boolean)};
+    });
+  });
+}
 function driveFind(){
   var q=encodeURIComponent("name='"+AUTH.LIB_FILE+"' and trashed=false");
   return fetch('https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&q='+q,{headers:driveHeaders()})
