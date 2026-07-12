@@ -66,6 +66,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
  <div class="controls">
   <input id="q" placeholder="Search piece, raga, composer…">
   <select id="fRaga"><option value="">All ragas</option></select>
+  <select id="fTala"><option value="">All talas</option></select>
   <select id="fType"><option value="">All types</option></select>
   <select id="fComposer"><option value="">All composers</option></select>
   <button id="favBtn" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button>
@@ -83,7 +84,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
  <div id="conList"></div>
 </div>
 <div id="view-archive" style="display:none">
- <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button></div>
+ <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTalaA"><option value="">All talas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button></div>
  <div class="note">Your own archive in Drive — notation, audio, notes you Add appear here.</div>
  <div id="arcList"></div>
 </div>
@@ -106,7 +107,7 @@ const _b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/
 const _unb64=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(s))));};
 function uniqFrom(k){return [...new Set(CAT.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));}
 function buildFilters(){
-  [['fRaga','Raga','All ragas'],['fType','Type','All types'],['fComposer','Composer','All composers']].forEach(([id,key,all])=>{
+  [['fRaga','Raga','All ragas'],['fTala','Tala','All talas'],['fType','Type','All types'],['fComposer','Composer','All composers']].forEach(([id,key,all])=>{
     const s=document.getElementById(id); const cur=s.value;
     s.innerHTML='<option value="">'+all+'</option>';
     uniqFrom(key).forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);});
@@ -129,8 +130,8 @@ function card(r,isImp){const st=star.has(key(r)),inc=con.includes(key(r));
    <button class="iconbtn add" title="${inc?'In concert':'Add to concert'}" onclick="aCon('${esc(key(r))}')">${inc?'✓':'＋'}</button>
    ${link}</div></div>`;}
 function rBrowse(){const q=document.getElementById('q').value.trim().toLowerCase();
- const fr=fRaga.value,ft=fType.value,fc=fComposer.value;
- const out=CAT.filter(r=>{if(fr&&r.Raga!==fr)return 0;if(ft&&r.Type!==ft)return 0;if(fc&&r.Composer!==fc)return 0;
+ const fr=fRaga.value,fta=fTala.value,ft=fType.value,fc=fComposer.value;
+ const out=CAT.filter(r=>{if(fr&&r.Raga!==fr)return 0;if(fta&&r.Tala!==fta)return 0;if(ft&&r.Type!==ft)return 0;if(fc&&r.Composer!==fc)return 0;
   if(favOnly&&!star.has(key(r)))return 0;
   if(q)return (r.Piece+' '+r.Raga+' '+r.Composer+' '+r.Type).toLowerCase().includes(q);return 1;});
  count.textContent=`${out.length} of ${CAT.length} songs`;
@@ -165,9 +166,9 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.que
  var vr=document.getElementById('view-resources');if(vr)vr.style.display=t=='resources'?'':'none';
  if(t=='archive'){isMaster?rMaster():rArchive();}
  if(t=='concert')rCon();if(t=='resources')rResources();});
-['q','fRaga','fType','fComposer'].forEach(id=>document.getElementById(id).addEventListener('input',rMaster));
+['q','fRaga','fTala','fType','fComposer'].forEach(id=>document.getElementById(id).addEventListener('input',rMaster));
 var _qa=document.getElementById('qArc');if(_qa)_qa.addEventListener('input',rArchive);
-['fRagaA','fTypeA','fComposerA'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',rArchive);});
+['fRagaA','fTalaA','fTypeA','fComposerA'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',rArchive);});
 clearCon.onclick=()=>{if(confirm('Clear the whole concert order?')){con=[];save();badges();rCon();}};
 printdate.textContent=new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
 window.view_browse=document.getElementById('view-browse');window.view_concert=document.getElementById('view-concert');
@@ -415,6 +416,7 @@ function _bundleCard(tree){
 var _arcIdx=null,_arcRoot=null;
 function buildArchiveFilters(items){
   _fillSel('fRagaA','All ragas',_uniq(items.map(function(i){return i.raga;})));
+  _fillSel('fTalaA','All talas',_uniq(items.map(function(i){return i.tala;})));
   _fillSel('fTypeA','All types',_uniq(items.map(function(i){return i.pieceType;})));
   _fillSel('fComposerA','All composers',_uniq(items.map(function(i){return i.composer;})));
 }
@@ -432,9 +434,10 @@ function rArchive(){
     if(!idx){ host.innerHTML='<div class="empty">Could not load your archive — see console.</div>'; return; }
     var items=(idx&&idx.items)||[];
     var q=((document.getElementById('qArc')||{}).value||'').trim().toLowerCase();
-    var fr=((document.getElementById('fRagaA')||{}).value)||'', ft=((document.getElementById('fTypeA')||{}).value)||'', fc=((document.getElementById('fComposerA')||{}).value)||'';
+    var fr=((document.getElementById('fRagaA')||{}).value)||'', fta=((document.getElementById('fTalaA')||{}).value)||'', ft=((document.getElementById('fTypeA')||{}).value)||'', fc=((document.getElementById('fComposerA')||{}).value)||'';
     var out=items.filter(function(it){
       if(fr&&it.raga!==fr)return false;
+      if(fta&&it.tala!==fta)return false;
       if(ft&&it.pieceType!==ft)return false;
       if(fc&&it.composer!==fc)return false;
       if(favOnly&&!star.has(it.id))return false;
@@ -453,7 +456,7 @@ function rResources(){
 var _masterIdx=null,_masterRoot=null;
 function _uniq(a){ return [...new Set(a.filter(Boolean))].sort(function(x,y){return x.toLowerCase().localeCompare(y.toLowerCase());}); }
 function _fillSel(id,all,vals){ var s=document.getElementById(id); if(!s)return; var cur=s.value; s.innerHTML='<option value="">'+all+'</option>'; vals.forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);}); s.value=cur; }
-function buildMasterFilters(items){ _fillSel('fRaga','All ragas',_uniq(items.map(function(i){return i.raga;}))); _fillSel('fType','All types',_uniq(items.map(function(i){return i.pieceType;}))); _fillSel('fComposer','All composers',_uniq(items.map(function(i){return i.composer;}))); }
+function buildMasterFilters(items){ _fillSel('fRaga','All ragas',_uniq(items.map(function(i){return i.raga;}))); _fillSel('fTala','All talas',_uniq(items.map(function(i){return i.tala;}))); _fillSel('fType','All types',_uniq(items.map(function(i){return i.pieceType;}))); _fillSel('fComposer','All composers',_uniq(items.map(function(i){return i.composer;}))); }
 function loadMaster(cb){
   if(_masterIdx) return cb(_masterIdx);
   resolveMasterRoot(function(rootId){ if(!rootId){cb(null);return;} _masterRoot=rootId;
@@ -466,8 +469,8 @@ function rMaster(){
   loadMaster(function(idx){
     if(!idx){ host.innerHTML='<div class="empty">Pick the master folder to view it.</div>'; return; }
     var items=idx.items||[];
-    var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, ft=fType.value, fc=fComposer.value;
-    var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0); return 1; });
+    var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, fta=fTala.value, ft=fType.value, fc=fComposer.value;
+    var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(fta&&it.tala!==fta)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0); return 1; });
     document.getElementById('count').textContent=out.length+' of '+items.length+' pieces';
     host.innerHTML=out.length?out.map(_indexCard).join(''):'<div class="empty">No matches.</div>';
   });
