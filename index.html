@@ -907,6 +907,22 @@ function driveUpdateBundleJson(folderId,obj){
 function removeFromIndex(rootId,id){ return readIndex(rootId).then(function(idx){ var items=((idx&&idx.items)||[]).filter(function(x){return x.id!==id;}); return writeIndex(rootId,items); }); }
 function _driveParent(fileId){ return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?fields=parents',{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){return (d.parents&&d.parents[0])||null;}); }
 function ensureTrashFolder(rootId){ return _driveParent(rootId).then(function(par){ return driveEnsureFolder(AUTH.TRASH_NAME, par||undefined); }); }
+/* Karnatic database search: the master catalog (CAT — carries tala/type) plus the ~8k krithi
+   dictionary. Used from the Edit modal to fill fields when auto-detect missed. */
+var _kdb=null;
+function kdbBuild(){
+  if(_kdb) return _kdb;
+  var seen={}, out=[];
+  CAT.forEach(function(r){ var n=r.Piece||''; if(!n)return; var k=n.toLowerCase(); if(seen[k])return; seen[k]=1; out.push({name:n,raga:r.Raga||'',tala:r.Tala||'',composer:r.Composer||'',type:r.Type||''}); });
+  (_dict||[]).forEach(function(e){ var n=e.name||''; if(!n)return; var k=n.toLowerCase(); if(seen[k])return; seen[k]=1; out.push({name:n,raga:e.raga||'',tala:'',composer:e.composer||'',type:''}); });
+  _kdb=out; return out;
+}
+function kdbSearch(q,n){
+  q=(q||'').trim().toLowerCase(); if(q.length<2) return [];
+  var m=kdbBuild().filter(function(e){ return ((e.name+' '+e.raga+' '+e.composer).toLowerCase()).indexOf(q)>=0; });
+  m.sort(function(a,b){ var an=a.name.toLowerCase().indexOf(q)===0?0:1, bn=b.name.toLowerCase().indexOf(q)===0?0:1; if(an!==bn)return an-bn; return a.name.toLowerCase().localeCompare(b.name.toLowerCase()); });
+  return m.slice(0,n||8);
+}
 window.openEdit=function(fid){
   var idx=onMaster()?_masterIdx:_arcIdx; var it=(idx&&idx.items)?idx.items.find(function(x){return x.id===fid;}):null;
   if(!it){ toast('Item not found'); return; }
@@ -916,6 +932,9 @@ window.openEdit=function(fid){
   document.getElementById('edTala').value=it.tala||'';
   document.getElementById('edComposer').value=it.composer||'';
   document.getElementById('edType').value=it.pieceType||'';
+  loadDict(function(){ _kdb=null; });
+  var es=document.getElementById('edSearch'); if(es) es.value='';
+  var er=document.getElementById('edResults'); if(er){ er.innerHTML=''; er.style.display='none'; }
   document.getElementById('kEdit').style.display='flex';
 };
 function _editSave(){
@@ -948,10 +967,17 @@ function _editRemove(){
    +"#kEdit label{display:block;font-size:12px;color:#8a7d70;margin:10px 0 3px}"
    +"#kEdit input{width:100%;border:1px solid #e7ddcc;border-radius:9px;padding:9px 10px;font-size:14px;color:#2a221c;background:#fff}"
    +"#kEdit .row{display:flex;gap:8px;margin-top:16px}#kEdit .row button{flex:1;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer}"
-   +"#kEdit .go{background:#7a1f2b;color:#fff}#kEdit .no{background:#f3e9d6;color:#6b5330}#kEdit .rm{background:#fff;color:#b23;border:1px solid #e7c3c3}";
+   +"#kEdit .go{background:#7a1f2b;color:#fff}#kEdit .no{background:#f3e9d6;color:#6b5330}#kEdit .rm{background:#fff;color:#b23;border:1px solid #e7c3c3}"
+   +"#kEdit #edResults{border:1px solid #e7ddcc;border-radius:9px;margin-top:5px;max-height:190px;overflow:auto;display:none}"
+   +"#kEdit .eres{padding:8px 10px;font-size:14px;cursor:pointer;border-bottom:1px solid #f0e8da}"
+   +"#kEdit .eres:last-child{border-bottom:0}#kEdit .eres:hover{background:#f7efe0}"
+   +"#kEdit .eres span{color:#8a7d70;font-size:12px;margin-left:6px}"
+   +"#kEdit .hint{font-size:11px;color:#a08b6f;margin:3px 0 2px}#kEdit .sep{height:1px;background:#eee;margin:16px 0 2px}";
   document.head.appendChild(css);
   var m=document.createElement('div'); m.id='kEdit';
   m.innerHTML='<div class="box"><h3>Edit piece</h3>'
+   +'<label>Find in the Karnatic database</label><input id="edSearch" placeholder="Type a piece name…" autocomplete="off">'
+   +'<div id="edResults"></div><div class="hint">Pick a match to fill the fields below, or edit them by hand.</div><div class="sep"></div>'
    +'<label>Piece</label><input id="edTitle">'
    +'<label>Raga</label><input id="edRaga">'
    +'<label>Tala</label><input id="edTala">'
@@ -963,6 +989,17 @@ function _editRemove(){
   document.getElementById('edCancel').onclick=function(){ document.getElementById('kEdit').style.display='none'; };
   document.getElementById('edSave').onclick=_editSave;
   document.getElementById('edRemove').onclick=_editRemove;
+  var _es=document.getElementById('edSearch'), _er=document.getElementById('edResults');
+  _es.addEventListener('input',function(){
+    var res=kdbSearch(_es.value,8);
+    if(!res.length){ _er.innerHTML=''; _er.style.display='none'; return; }
+    _er.innerHTML=res.map(function(e,i){ return '<div class="eres" data-i="'+i+'">'+esc(e.name)+'<span>'+esc([e.raga,e.tala,e.composer].filter(Boolean).join(' · '))+'</span></div>'; }).join('');
+    _er.style.display='block';
+    Array.prototype.forEach.call(_er.querySelectorAll('.eres'),function(row){ row.onclick=function(){ var e=res[+row.dataset.i];
+      document.getElementById('edTitle').value=e.name||''; document.getElementById('edRaga').value=e.raga||'';
+      if(e.tala)document.getElementById('edTala').value=e.tala; document.getElementById('edComposer').value=e.composer||''; if(e.type)document.getElementById('edType').value=e.type;
+      _er.innerHTML=''; _er.style.display='none'; _es.value=''; }; });
+  });
 })();
 /* ---- Admin/User role chooser (shown to admin-eligible accounts at sign-in) ---- */
 (function(){
