@@ -148,7 +148,7 @@ function rCon(){if(!con.length){conList.innerHTML='<div class="empty">Concert is
  pbody.innerHTML=con.map((k,i)=>{const r=CAT.find(x=>key(x)===k)||{Piece:k};
   return `<tr><td>${i+1}</td><td>${esc(r.Piece)}</td><td>${esc(r.Raga||'')}</td><td>${esc(r.Tala||'')}</td><td>${esc(r.Composer||'')}</td><td>${esc(sh[k]||'')}</td></tr>`;}).join('');}
 function badges(){var cb=document.getElementById('conBadge');if(cb)cb.textContent=con.length;}
-function reRender(){var b=document.querySelector('.tabs button.active');var t=b?b.dataset.tab:'';if(t==='archive'){AS.role==='master'?rMaster():rArchive();}else if(t==='concert')rCon();else if(t==='resources')rResources();}
+function reRender(){var b=document.querySelector('.tabs button.active');var t=b?b.dataset.tab:'';if(t==='archive'){onMaster()?rMaster():rArchive();}else if(t==='concert')rCon();else if(t==='resources')rResources();}
 function toggleFav(){favOnly=!favOnly;document.querySelectorAll('#favBtn,#favBtnA').forEach(function(b){b.classList.toggle('primary',favOnly);b.classList.toggle('ghost',!favOnly);});reRender();}
 function tStar(k){star.has(k)?star.delete(k):star.add(k);save();badges();reRender();}
 function tStarId(id){star.has(id)?star.delete(id):star.add(id);save();badges();reRender();}
@@ -159,7 +159,7 @@ function rm(i){con.splice(i,1);save();badges();rCon();reRender();}
 function mv(i,d){const j=i+d;if(j<0||j>=con.length)return;[con[i],con[j]]=[con[j],con[i]];save();rCon();}
 function setSh(k,v){sh[k]=v;save();}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');
- const t=b.dataset.tab;var isMaster=AS.role==='master';
+ const t=b.dataset.tab;var isMaster=onMaster();
  view_browse.style.display=(t=='archive'&&isMaster)?'':'none';
  var va=document.getElementById('view-archive');if(va)va.style.display=(t=='archive'&&!isMaster)?'':'none';
  view_concert.style.display=t=='concert'?'':'none';
@@ -227,25 +227,30 @@ function shareSong(k){
 /* ---- Route B: Google sign-in + own-Drive sync + master/user roles (TEST MODE) ---- */
 const AUTH={
   CLIENT_ID: '338340942516-lju3m0bc9coruem8ia2qa4vi9f1l9900.apps.googleusercontent.com',                                                         /* <-- paste your OAuth Web client ID here */
-  ADMIN_EMAILS: ['uthra78@gmail.com','prabhakar.ranganathan@gmail.com','seshadri.anupama@gmail.com','aravindgomatam19@gmail.com','govindpgomatam@gmail.com'], /* master-keepers (everyone else = user). RP's monash.edu is deliberately NOT here — it's his login-as-user test id. */
+  TEACHER_EMAILS: ['prabhakar.ranganathan@gmail.com','uthra78@gmail.com'],                                /* full master: view/share + curate. RP (testing) + Akka. */
+  ADMIN_EMAILS: ['seshadri.anupama@gmail.com','aravindgomatam19@gmail.com','govindpgomatam@gmail.com'],   /* curate the master (add/import), no teaching affordances. Anu + boys. Everyone else = User; RP's monash.edu is deliberately absent (his login-as-user test id). */
   SCOPES: 'openid email profile https://www.googleapis.com/auth/drive.file',
   LIB_FILE: 'keerthana-library.json',
   PICKER_KEY: 'AIzaSyBkNHClBkhA68Tx3xy3evfdHVThGa8iPA8', /* Google Picker API browser key (referrer-restricted) */
   APP_ID: '338340942516',                               /* Cloud project number, for the Picker */
   ARCHIVE_ROOT: 'Keerthana Archive'                     /* app-created root folder in the user's own Drive */
 };
-let AS={token:null,email:null,role:null,trueRole:null,override:null,fileId:null,tokenClient:null};
+let AS={token:null,email:null,role:null,maxRole:null,fileId:null,tokenClient:null};
 /* ?as=user / ?as=master — role-preview override for testers.
    Only honoured when the signed-in account is genuinely a master, so an
    ordinary user cannot self-promote by editing the URL. UI preview only:
    it does not change Drive access, which stays tied to the real account. */
-function _asOverride(){ try{ var v=new URLSearchParams(location.search).get('as'); return (v==='user'||v==='master')?v:null; }catch(e){ return null; } }
-/* role is CHOSEN at sign-in: admin-eligible accounts pick Admin or User; everyone else is User.
-   role 'master' = Admin (edits the master archive); 'user' = personal archive. */
+function _asOverride(){ try{ var v=new URLSearchParams(location.search).get('as'); if(v==='master') v='teacher'; return (v==='teacher'||v==='admin'||v==='user')?v:null; }catch(e){ return null; } }
+/* Three roles, chosen at sign-in within the account's entitlement (maxRole):
+   teacher (full master: view/share + curate) > admin (curate master) > user (personal only).
+   'teacher'/'admin' both act ON the master → onMaster(); 'user' acts on a personal archive. */
+function roleRank(r){ return r==='teacher'?3:r==='admin'?2:1; }
+function roleLabel(r){ return r==='teacher'?'Teacher':r==='admin'?'Admin':'User'; }
+function onMaster(){ return AS.role==='teacher'||AS.role==='admin'; }
 function setRole(role){
   AS.role=role;
   renderAuthBar(); applyAuthView();
-  if(window.toast)toast('Signed in: '+AS.email+' ('+(role==='master'?'Admin':'User')+')');
+  if(window.toast)toast('Signed in: '+AS.email+' ('+roleLabel(role)+')');
   driveSyncOnLogin();
 }
 (function(){var s=document.createElement('style');s.textContent="header{position:relative}"
@@ -266,18 +271,19 @@ function authInit(){
 }
 function authSignIn(){ if(AS.tokenClient) AS.tokenClient.requestAccessToken(); }
 /* Sign out clears local state only (no token revoke), so signing back in doesn't re-prompt for consent every time. */
-function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.isAdmin=false;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null;_driveScoped=false; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
+function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null;_driveScoped=false; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
 function onToken(tok){
   AS.token=tok;
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
    .then(function(r){return r.json();}).then(function(u){
      AS.email=u.email||'';
-     var adm=AUTH.ADMIN_EMAILS.map(function(e){return e.toLowerCase();});
-     AS.isAdmin=!!(AS.email && adm.indexOf(AS.email.toLowerCase())>=0);
+     var lc=function(x){return x.toLowerCase();}, e=AS.email.toLowerCase();
+     var te=(AUTH.TEACHER_EMAILS||[]).map(lc), ad=(AUTH.ADMIN_EMAILS||[]).map(lc);
+     AS.maxRole = te.indexOf(e)>=0 ? 'teacher' : ad.indexOf(e)>=0 ? 'admin' : 'user';
      AS.role=null; renderAuthBar();
      var pre=_asOverride();
-     if(!AS.isAdmin) setRole('user');
-     else if(pre) setRole(pre);
+     if(AS.maxRole==='user') setRole('user');
+     else if(pre && roleRank(pre)<=roleRank(AS.maxRole)) setRole(pre);
      else showRoleChooser();
    }).catch(function(e){console.log('userinfo err',e);});
 }
@@ -285,9 +291,9 @@ function renderAuthBar(){
   var bar=document.getElementById('authBar');
   if(!bar){ bar=document.createElement('div'); bar.id='authBar'; (document.querySelector('header')||document.body).appendChild(bar); }
   if(AS.email){
-    var label=AS.role?(AS.role==='master'?'Admin':'User'):'…';
-    var sw=AS.isAdmin?'<button onclick="showRoleChooser()" title="Switch role">⇄</button>':'';
-    var mf=(AS.role==='master')?'<button onclick="changeMasterFolder()" title="Change the master archive folder">⌂ Master folder</button><button onclick="rebuildMaster()" title="Rebuild the master index by rescanning Drive">↻</button>':'';
+    var label=AS.role?roleLabel(AS.role):'…';
+    var sw=(AS.maxRole&&AS.maxRole!=='user')?'<button onclick="showRoleChooser()" title="Switch role">⇄</button>':'';
+    var mf=onMaster()?'<button onclick="changeMasterFolder()" title="Change the master archive folder">⌂ Master folder</button><button onclick="rebuildMaster()" title="Rebuild the master index by rescanning Drive">↻</button>':'';
     bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button><button onclick="openImport()">⇪ Import</button>':'')+mf+sw+'<button onclick="authSignOut()">Sign out</button>';
   } else {
     bar.innerHTML='<button onclick="authSignIn()">Sign in with Google</button>';
@@ -303,7 +309,7 @@ function applyAuthView(){
   if(tabs) tabs.style.display=signedIn?'':'none';
   if(!signedIn){ ['view-browse','view-archive','view-concert','view-resources'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; }); return; }
   /* Admin edits the master archive and has no concert planner; hide the Concert tab for master, show it for users. */
-  var conBtn=document.querySelector('.tabs button[data-tab="concert"]'); if(conBtn) conBtn.style.display=(AS.role==='master')?'none':'';
+  var conBtn=document.querySelector('.tabs button[data-tab="concert"]'); if(conBtn) conBtn.style.display=(AS.role==='admin')?'none':'';
   var b=document.querySelector('.tabs button[data-tab="archive"]'); if(b) b.click();
 }
 function driveHeaders(){ return {Authorization:'Bearer '+AS.token}; }
@@ -637,7 +643,7 @@ function changeMasterFolder(){
   });
 }
 /* Admin → the shared master folder (picked once, remembered); User → personal archive root. */
-function resolveTargetRoot(cb){ if(AS.role==='master') resolveMasterRoot(cb); else ensureArchiveRoot().then(function(id){ cb(id); }); }
+function resolveTargetRoot(cb){ if(onMaster()) resolveMasterRoot(cb); else ensureArchiveRoot().then(function(id){ cb(id); }); }
 /* ---- Orchestration: create a bundle under rootId from a spec ---- */
 function createBundle(rootId,spec){
   if(spec.type==='piece'){
@@ -701,7 +707,7 @@ function createBundle(rootId,spec){
     var go=document.getElementById('kaGo'); go.textContent='Creating…'; go.disabled=true;
     createBundle(_targetRoot,spec)
       .then(function(topId){ return addToIndex(_targetRoot,topId); })
-      .then(function(){ if(AS.role==='master') _masterIdx=null; else _arcIdx=null; toast(AS.role==='master'?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
+      .then(function(){ if(onMaster()) _masterIdx=null; else _arcIdx=null; toast(onMaster()?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
       .catch(function(e){ console.log('add err',e); toast('Could not add — see console'); })
       .then(function(){ go.textContent='Create bundle'; go.disabled=false; });
   };
@@ -788,7 +794,7 @@ window.openImport=function(){
   document.getElementById('imGo').onclick=function(){
     var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0;
     (function next(){
-      if(i>=rows.length){ go.disabled=false; if(AS.role==='master') _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
+      if(i>=rows.length){ go.disabled=false; if(onMaster()) _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
       var r=rows[i], p=r.prop; go.textContent='Importing '+(i+1)+'/'+rows.length+'…';
       var spec={type:'piece',title:p.title||r.file.name,raga:p.raga,tala:p.tala,composer:p.composer,pieceType:p.pieceType,aro:p.aro,av:p.av,parent:p.parent,fileId:r.file.id,fileName:r.file.name};
       createBundle(_impRoot,spec).then(function(topId){ return addToIndex(_impRoot,topId); }).then(function(){ ok++; i++; next(); }).catch(function(e){ console.log('import row err',e); i++; next(); });
@@ -803,16 +809,20 @@ window.openImport=function(){
    +"#kRole .box{background:#fff;border-radius:16px;max-width:400px;width:100%;padding:24px;box-shadow:0 12px 40px rgba(0,0,0,.3);text-align:center}"
    +"#kRole h3{margin:0 0 6px;color:#7a1f2b;font-size:19px}#kRole p{color:#8a7d70;font-size:13px;margin:0 0 16px}"
    +"#kRole button{display:block;width:100%;border:0;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px}"
-   +"#kRole .adm{background:#7a1f2b;color:#fff}#kRole .usr{background:#f3e9d6;color:#6b5330}";
+   +"#kRole .tch{background:#5a2d82;color:#fff}#kRole .adm{background:#7a1f2b;color:#fff}#kRole .usr{background:#f3e9d6;color:#6b5330}";
   document.head.appendChild(css);
   var m=document.createElement('div'); m.id='kRole';
-  m.innerHTML='<div class="box"><h3>How do you want to sign in?</h3><p>You have admin access. Choose how to work this session.</p>'
-   +'<button class="adm" id="krAdm">Continue as Admin — edit the master archive</button>'
-   +'<button class="usr" id="krUsr">Continue as User — my personal archive</button></div>';
   document.body.appendChild(m);
-  document.getElementById('krAdm').onclick=function(){ m.style.display='none'; setRole('master'); };
-  document.getElementById('krUsr').onclick=function(){ m.style.display='none'; setRole('user'); };
-  window.showRoleChooser=function(){ m.style.display='flex'; };
+  /* Offer only the modes this account is entitled to (teacher ⊇ admin ⊇ user). */
+  window.showRoleChooser=function(){
+    var o='';
+    if(roleRank(AS.maxRole)>=3) o+='<button class="tch" data-role="teacher">Continue as Teacher — the full master archive</button>';
+    if(roleRank(AS.maxRole)>=2) o+='<button class="adm" data-role="admin">Continue as Admin — add to the master archive</button>';
+    o+='<button class="usr" data-role="user">Continue as User — my personal archive</button>';
+    m.innerHTML='<div class="box"><h3>How do you want to sign in?</h3><p>Choose how to work this session.</p>'+o+'</div>';
+    m.querySelectorAll('button[data-role]').forEach(function(b){ b.onclick=function(){ m.style.display='none'; setRole(b.dataset.role); }; });
+    m.style.display='flex';
+  };
 })();
 authInit();
 applyAuthView();
