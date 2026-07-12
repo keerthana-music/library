@@ -147,7 +147,7 @@ function rCon(){if(!con.length){conList.innerHTML='<div class="empty">Concert is
  pbody.innerHTML=con.map((k,i)=>{const r=CAT.find(x=>key(x)===k)||{Piece:k};
   return `<tr><td>${i+1}</td><td>${esc(r.Piece)}</td><td>${esc(r.Raga||'')}</td><td>${esc(r.Tala||'')}</td><td>${esc(r.Composer||'')}</td><td>${esc(sh[k]||'')}</td></tr>`;}).join('');}
 function badges(){var cb=document.getElementById('conBadge');if(cb)cb.textContent=con.length;}
-function reRender(){var b=document.querySelector('.tabs button.active');var t=b?b.dataset.tab:'';if(t==='archive'){AS.role==='master'?rBrowse():rArchive();}else if(t==='concert')rCon();else if(t==='resources')rResources();}
+function reRender(){var b=document.querySelector('.tabs button.active');var t=b?b.dataset.tab:'';if(t==='archive'){AS.role==='master'?rMaster():rArchive();}else if(t==='concert')rCon();else if(t==='resources')rResources();}
 function toggleFav(){favOnly=!favOnly;document.querySelectorAll('#favBtn,#favBtnA').forEach(function(b){b.classList.toggle('primary',favOnly);b.classList.toggle('ghost',!favOnly);});reRender();}
 function tStar(k){star.has(k)?star.delete(k):star.add(k);save();badges();reRender();}
 function tStarId(id){star.has(id)?star.delete(id):star.add(id);save();badges();reRender();}
@@ -163,9 +163,9 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.que
  var va=document.getElementById('view-archive');if(va)va.style.display=(t=='archive'&&!isMaster)?'':'none';
  view_concert.style.display=t=='concert'?'':'none';
  var vr=document.getElementById('view-resources');if(vr)vr.style.display=t=='resources'?'':'none';
- if(t=='archive'){isMaster?rBrowse():rArchive();}
+ if(t=='archive'){isMaster?rMaster():rArchive();}
  if(t=='concert')rCon();if(t=='resources')rResources();});
-['q','fRaga','fType','fComposer'].forEach(id=>document.getElementById(id).addEventListener('input',rBrowse));
+['q','fRaga','fType','fComposer'].forEach(id=>document.getElementById(id).addEventListener('input',rMaster));
 var _qa=document.getElementById('qArc');if(_qa)_qa.addEventListener('input',rArchive);
 clearCon.onclick=()=>{if(confirm('Clear the whole concert order?')){con=[];save();badges();rCon();}};
 printdate.textContent=new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
@@ -343,7 +343,7 @@ function scanArchive(){
    Same mechanism for a personal archive and (next) the master. bundle.json stays source of truth. ---- */
 function _notationFileId(tree){ var f=(tree.files||[]).filter(function(x){return x.name!=='bundle.json'&&x.mimeType!=='application/vnd.google-apps.folder';})[0]; return f?f.id:''; }
 function _indexItem(tree){ var m=tree.meta||{},mm=m.meta||{};
-  return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),
+  return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',pieceType:mm.pieceType||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),
     children:(tree.children||[]).map(function(c){var cm=c.meta||{};return {id:c.folderId,type:c.type,label:cm.label||cm.title||c.type,notationId:_notationFileId(c)};})};
 }
 function buildIndexItems(rootId){
@@ -422,6 +422,29 @@ function rArchive(){
 function rResources(){
   var host=document.getElementById('resList'); if(!host) return;
   host.innerHTML='<div class="empty">Community resources — theory, transliteration guides, composer bios, newsletters, media — are coming soon. Resources you Add (notes, links) will also appear here.</div>';
+}
+/* ---- Master Archive (Admin): read master-index.json from the granted master folder. Retires the spreadsheet for display. ---- */
+var _masterIdx=null,_masterRoot=null;
+function _uniq(a){ return [...new Set(a.filter(Boolean))].sort(function(x,y){return x.toLowerCase().localeCompare(y.toLowerCase());}); }
+function _fillSel(id,all,vals){ var s=document.getElementById(id); if(!s)return; var cur=s.value; s.innerHTML='<option value="">'+all+'</option>'; vals.forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);}); s.value=cur; }
+function buildMasterFilters(items){ _fillSel('fRaga','All ragas',_uniq(items.map(function(i){return i.raga;}))); _fillSel('fType','All types',_uniq(items.map(function(i){return i.pieceType;}))); _fillSel('fComposer','All composers',_uniq(items.map(function(i){return i.composer;}))); }
+function loadMaster(cb){
+  if(_masterIdx) return cb(_masterIdx);
+  resolveMasterRoot(function(rootId){ if(!rootId){cb(null);return;} _masterRoot=rootId;
+    var h=document.getElementById('list'); if(h) h.innerHTML='<div class="empty">Loading the master archive… (first time builds the index)</div>';
+    ensureIndex(rootId).then(function(idx){ _masterIdx=idx; buildMasterFilters(idx.items||[]); cb(idx); }).catch(function(e){console.log('master idx err',e);cb(null);}); });
+}
+function rMaster(){
+  var host=document.getElementById('list'); if(!host) return;
+  if(!AS.token){ host.innerHTML='<div class="empty">Sign in.</div>'; return; }
+  loadMaster(function(idx){
+    if(!idx){ host.innerHTML='<div class="empty">Pick the master folder to view it.</div>'; return; }
+    var items=idx.items||[];
+    var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, ft=fType.value, fc=fComposer.value;
+    var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0); return 1; });
+    document.getElementById('count').textContent=out.length+' of '+items.length+' pieces';
+    host.innerHTML=out.length?out.map(_indexCard).join(''):'<div class="empty">No matches.</div>';
+  });
 }
 function driveFind(){
   var q=encodeURIComponent("name='"+AUTH.LIB_FILE+"' and trashed=false");
@@ -524,16 +547,13 @@ function openFolderPicker(title,onPick){
     picker.setVisible(true);
   });
 }
-/* Admin → the shared master folder (picked once, remembered); User → personal archive root. */
-function resolveTargetRoot(cb){
-  if(AS.role==='master'){
-    var stored=null; try{ stored=JSON.parse(localStorage.getItem(MASTER_ROOT_KEY)||'null'); }catch(e){}
-    if(stored&&stored.id) return cb(stored.id);
-    openFolderPicker('Select the MASTER archive folder (one-time)',function(f){ localStorage.setItem(MASTER_ROOT_KEY,JSON.stringify(f)); toast('Master folder set: '+f.name); cb(f.id); });
-  } else {
-    ensureArchiveRoot().then(function(id){ cb(id); });
-  }
+function resolveMasterRoot(cb){
+  var stored=null; try{ stored=JSON.parse(localStorage.getItem(MASTER_ROOT_KEY)||'null'); }catch(e){}
+  if(stored&&stored.id) return cb(stored.id);
+  openFolderPicker('Select the MASTER archive folder (one-time)',function(f){ localStorage.setItem(MASTER_ROOT_KEY,JSON.stringify(f)); toast('Master folder set: '+f.name); cb(f.id); });
 }
+/* Admin → the shared master folder (picked once, remembered); User → personal archive root. */
+function resolveTargetRoot(cb){ if(AS.role==='master') resolveMasterRoot(cb); else ensureArchiveRoot().then(function(id){ cb(id); }); }
 /* ---- Orchestration: create a bundle under rootId from a spec ---- */
 function createBundle(rootId,spec){
   if(spec.type==='piece'){
@@ -597,7 +617,7 @@ function createBundle(rootId,spec){
     var go=document.getElementById('kaGo'); go.textContent='Creating…'; go.disabled=true;
     createBundle(_targetRoot,spec)
       .then(function(topId){ return addToIndex(_targetRoot,topId); })
-      .then(function(){ toast(AS.role==='master'?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; if(AS.role!=='master'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } })
+      .then(function(){ if(AS.role==='master') _masterIdx=null; toast(AS.role==='master'?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
       .catch(function(e){ console.log('add err',e); toast('Could not add — see console'); })
       .then(function(){ go.textContent='Create bundle'; go.disabled=false; });
   };
