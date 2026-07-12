@@ -143,7 +143,7 @@ function rLib(){const imp=Object.values(imported);const starred=CAT.filter(r=>st
 function _conRow(k){
   var pools=[]; if(_masterIdx&&_masterIdx.items)pools.push(_masterIdx.items); if(_arcIdx&&_arcIdx.items)pools.push(_arcIdx.items);
   for(var p=0;p<pools.length;p++){ var it=pools[p].find(function(x){return (x.title||'')===k;});
-    if(it) return {Piece:it.title||k, Raga:it.raga||'', Tala:it.tala||'', Type:it.pieceType||'', Composer:it.composer||'', notationUrl: it.notationId?('https://drive.google.com/file/d/'+it.notationId+'/view'):''}; }
+    if(it) return {Piece:it.title||k, Raga:it.raga||'', Tala:it.tala||'', Type:it.pieceType||'', Composer:it.composer||'', notationUrl: it.notationUrl||(it.notationId?('https://drive.google.com/file/d/'+it.notationId+'/view'):'')}; }
   var r=CAT.find(function(x){return key(x)===k;});
   if(r) return {Piece:r.Piece, Raga:r.Raga||'', Tala:r.Tala||'', Type:r.Type||'', Composer:r.Composer||'', notationUrl:r.Link||''};
   return {Piece:k, Raga:'', Tala:'', Type:'', Composer:'', notationUrl:''};
@@ -165,7 +165,23 @@ function tStar(k){star.has(k)?star.delete(k):star.add(k);save();badges();reRende
 function tStarId(id){star.has(id)?star.delete(id):star.add(id);save();badges();reRender();}
 function aCon(k){if(!con.includes(k))con.push(k);save();badges();reRender();rCon();}
 function aConTitle(t){if(!con.includes(t))con.push(t);save();badges();reRender();rCon();}
-function shareBundle(fid){var url='https://drive.google.com/drive/folders/'+fid;if(navigator.share){navigator.share({title:'Keerthana bundle',url:url}).catch(function(){});return;}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(function(){toast('Bundle link copied');},function(){window.prompt('Share:',url);});}else window.prompt('Share:',url);}
+function driveMakePublic(fileId){ return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'/permissions?fields=id',{method:'POST',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:JSON.stringify({role:'reader',type:'anyone'})}).then(function(r){return r.json();}); }
+function _shareLink(title,url){
+  if(navigator.share){ navigator.share({title:title||'The Keerthana App',text:'🎵 '+(title||'')+'  ·  The Keerthana App',url:url}).catch(function(){}); return; }
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(function(){toast('Share link copied — paste into WhatsApp');},function(){window.prompt('Share this link:',url);}); }
+  else window.prompt('Share this link:',url);
+}
+/* Share a piece as an APP deep-link (?import=…) carrying its meta + public notation URL, so the
+   recipient's app auto-imports a reference bundle. The notation is set public (best-effort, non-
+   blocking so the share gesture survives); Add already makes new PDFs public. */
+function shareBundle(fid){
+  var idx=onMaster()?_masterIdx:_arcIdx; var it=(idx&&idx.items)?idx.items.find(function(x){return x.id===fid;}):null;
+  if(!it){ return _shareLink('The Keerthana App','https://drive.google.com/drive/folders/'+fid); }
+  var nurl=it.notationUrl||(it.notationId?('https://drive.google.com/file/d/'+it.notationId+'/view'):'');
+  if(it.notationId){ try{ driveMakePublic(it.notationId); }catch(e){} }
+  var payload={t:it.title||'',r:it.raga||'',tl:it.tala||'',c:it.composer||'',ty:it.pieceType||'',n:nurl};
+  _shareLink(it.title||'piece', location.origin+location.pathname+'?import='+_b64(payload));
+}
 function rm(i){con.splice(i,1);save();badges();rCon();reRender();}
 function mv(i,d){const j=i+d;if(j<0||j>=con.length)return;[con[i],con[j]]=[con[j],con[i]];save();rCon();}
 function setSh(k,v){sh[k]=v;save();}
@@ -264,6 +280,21 @@ function setRole(role){
   renderAuthBar(); applyAuthView();
   if(window.toast)toast('Signed in: '+AS.email+' ('+roleLabel(role)+')');
   driveSyncOnLogin();
+  if(_pendingImport){ var pi=_pendingImport; _pendingImport=null; processImport(pi); }
+}
+/* Share-import: a ?import=<encoded> deep-link → create a reference bundle (notation by URL, no
+   copy) in the recipient's PERSONAL archive, skipping titles already there. */
+var _pendingImport=null;
+function processImport(payload){
+  if(!payload||(!payload.t&&!payload.n)) return;
+  ensureArchiveRoot().then(function(rootId){
+    return readIndex(rootId).then(function(idx){
+      var have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
+      if(payload.t && have[payload.t.toLowerCase()]){ if(window.toast)toast('“'+payload.t+'” is already in your archive'); return; }
+      var spec={type:'piece',title:payload.t||'shared piece',raga:payload.r||'',tala:payload.tl||'',composer:payload.c||'',pieceType:payload.ty||'',notationUrl:payload.n||''};
+      return createBundle(rootId,spec).then(function(topId){ return addToIndex(rootId,topId); }).then(function(){ _arcIdx=null; if(window.toast)toast('Added “'+(payload.t||'piece')+'” to your archive ✓'); if(AS.role==='user'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } });
+    });
+  }).catch(function(e){ console.log('import err',e); if(window.toast)toast('Could not import the shared piece'); });
 }
 (function(){var s=document.createElement('style');s.textContent="header{position:relative}"
  +"#authBar{position:absolute;top:14px;right:18px;display:flex;align-items:center;gap:8px;z-index:5}"
@@ -371,7 +402,7 @@ function scanArchive(){
    Same mechanism for a personal archive and (next) the master. bundle.json stays source of truth. ---- */
 function _notationFileId(tree){ var f=(tree.files||[]).filter(function(x){return x.name!=='bundle.json'&&x.mimeType!=='application/vnd.google-apps.folder';})[0]; return f?f.id:''; }
 function _indexItem(tree){ var m=tree.meta||{},mm=m.meta||{};
-  return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',pieceType:mm.pieceType||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),
+  return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',pieceType:mm.pieceType||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),notationUrl:m.notationUrl||'',
     children:(tree.children||[]).map(function(c){var cm=c.meta||{};return {id:c.folderId,type:c.type,label:cm.label||cm.title||c.type,notationId:_notationFileId(c)};})};
 }
 function buildIndexItems(rootId){
@@ -399,6 +430,7 @@ function addToIndex(rootId,topId){ return Promise.all([readIndex(rootId),scanBun
   var item=_indexItem(tree); var items=(idx.items||[]).filter(function(x){return x.id!==item.id;}); items.push(item);
   return writeIndex(rootId,items); }); }
 function _indexNotation(nid){ return nid?'<a class="iconbtn" href="https://drive.google.com/file/d/'+nid+'/view" target="_blank" rel="noopener" title="Open">📄</a>':''; }
+function _indexNotation2(it){ var u=(it&&it.notationUrl)||((it&&it.notationId)?('https://drive.google.com/file/d/'+it.notationId+'/view'):''); return u?'<a class="iconbtn" href="'+esc(u)+'" target="_blank" rel="noopener" title="Open">📄</a>':''; }
 function _indexCard(it){
   var fid=it.id, title=it.title||'(untitled)', st=star.has(fid), inc=con.includes(title), tq=esc(title).replace(/'/g,"\\'");
   var chips=(it.raga?'<span class="chip raga">'+esc(it.raga)+'</span>':'')+(it.tala?'<span class="chip">'+esc(it.tala)+'</span>':'')+(it.type&&it.type!=='piece'?'<span class="chip type">'+esc(it.type)+'</span>':'');
@@ -410,7 +442,7 @@ function _indexCard(it){
     +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId(\''+esc(fid)+'\')">'+(st?'★':'☆')+'</button>'
     +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle(\''+tq+'\')">'+(inc?'✓':'＋')+'</button>'
     +'<button class="iconbtn" title="Edit / remove" onclick="openEdit(\''+esc(fid)+'\')">✎</button>'
-    +_indexNotation(it.notationId)+'</div></div>';
+    +_indexNotation2(it)+'</div></div>';
 }
 function _driveView(id){ return 'https://drive.google.com/file/d/'+id+'/view'; }
 function _notationLink(tree){
@@ -662,10 +694,10 @@ function resolveTargetRoot(cb){ if(onMaster()) resolveMasterRoot(cb); else ensur
 function createBundle(rootId,spec){
   if(spec.type==='piece'){
     return driveEnsureFolder(pieceFolderName(spec.title,spec.raga),rootId).then(function(bid){
-      var meta={schema:'kms-bundle/1',type:'piece',title:spec.title,id:bid,label:'',
+      var meta={schema:'kms-bundle/1',type:'piece',title:spec.title,id:bid,label:'',notationUrl:spec.notationUrl||'',
         meta:{raga:spec.raga||'',tala:spec.tala||'',composer:spec.composer||'',pieceType:spec.pieceType||'',remarks:'',aro:spec.aro||'',av:spec.av||'',parent:spec.parent||''},
         files:spec.fileName?[spec.fileName]:[],items:[],updated:new Date().toISOString()};
-      return (spec.fileId?driveMoveInto(spec.fileId,bid):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,bid);}).then(function(){return bid;});
+      return (spec.fileId?driveMoveInto(spec.fileId,bid).then(function(){return driveMakePublic(spec.fileId).catch(function(){});}):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,bid);}).then(function(){return bid;});
     });
   }
   return driveEnsureFolder(pieceFolderName(spec.parentTitle,spec.parentRaga),rootId).then(function(pid){
@@ -952,6 +984,9 @@ function _editRemove(){
     m.style.display='flex';
   };
 })();
+/* Capture a share-import link at load and strip it from the URL so a reload won't re-import; it is
+   processed once the recipient signs in (see setRole). */
+try{ var _ip=new URLSearchParams(location.search).get('import'); if(_ip){ _pendingImport=_unb64(_ip); history.replaceState({},'',location.pathname); } }catch(e){ console.log('import parse err',e); }
 authInit();
 applyAuthView();
 </script></body></html>
