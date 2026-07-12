@@ -266,7 +266,7 @@ function authInit(){
 }
 function authSignIn(){ if(AS.tokenClient) AS.tokenClient.requestAccessToken(); }
 /* Sign out clears local state only (no token revoke), so signing back in doesn't re-prompt for consent every time. */
-function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.isAdmin=false;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
+function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.isAdmin=false;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null;_driveScoped=false; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
 function onToken(tok){
   AS.token=tok;
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
@@ -287,7 +287,7 @@ function renderAuthBar(){
   if(AS.email){
     var label=AS.role?(AS.role==='master'?'Admin':'User'):'…';
     var sw=AS.isAdmin?'<button onclick="showRoleChooser()" title="Switch role">⇄</button>':'';
-    var mf=(AS.role==='master')?'<button onclick="changeMasterFolder()" title="Change the master archive folder">⌂ Master folder</button>':'';
+    var mf=(AS.role==='master')?'<button onclick="changeMasterFolder()" title="Change the master archive folder">⌂ Master folder</button><button onclick="rebuildMaster()" title="Rebuild the master index by rescanning Drive">↻</button>':'';
     bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button><button onclick="openImport()">⇪ Import</button>':'')+mf+sw+'<button onclick="authSignOut()">Sign out</button>';
   } else {
     bar.innerHTML='<button onclick="authSignIn()">Sign in with Google</button>';
@@ -463,17 +463,51 @@ var _masterIdx=null,_masterRoot=null;
 function _uniq(a){ return [...new Set(a.filter(Boolean))].sort(function(x,y){return x.toLowerCase().localeCompare(y.toLowerCase());}); }
 function _fillSel(id,all,vals){ var s=document.getElementById(id); if(!s)return; var cur=s.value; s.innerHTML='<option value="">'+all+'</option>'; vals.forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);}); s.value=cur; }
 function buildMasterFilters(items){ _fillSel('fRaga','All ragas',_uniq(items.map(function(i){return i.raga;}))); _fillSel('fTala','All talas',_uniq(items.map(function(i){return i.tala;}))); _fillSel('fType','All types',_uniq(items.map(function(i){return i.pieceType;}))); _fillSel('fComposer','All composers',_uniq(items.map(function(i){return i.composer;}))); }
+/* Admin/Teacher elevate to full drive scope on demand (incremental auth), so the app can read
+   and write the master (a folder they don't own / didn't create). Users never call this — they
+   stay on drive.file. Requesting `drive` supersedes drive.file, so AS.token stays valid for
+   personal ops too. */
+var _driveScoped=false;
+function ensureDriveScope(cb){
+  if(_driveScoped && AS.token) return cb(true);
+  if(!window.google||!google.accounts||!google.accounts.oauth2){ return cb(false); }
+  try{
+    var dc=google.accounts.oauth2.initTokenClient({
+      client_id:AUTH.CLIENT_ID,
+      scope:'https://www.googleapis.com/auth/drive',
+      callback:function(resp){ if(resp&&resp.access_token){ AS.token=resp.access_token; _driveScoped=true; cb(true); } else { cb(false); } },
+      error_callback:function(e){ console.log('elevate declined',e); cb(false); }
+    });
+    dc.requestAccessToken();
+  }catch(e){ console.log('elevate err',e); cb(false); }
+}
 function loadMaster(cb){
   if(_masterIdx) return cb(_masterIdx);
-  resolveMasterRoot(function(rootId){ if(!rootId){cb(null);return;} _masterRoot=rootId;
-    var h=document.getElementById('list'); if(h) h.innerHTML='<div class="empty">Loading the master archive… (first time builds the index)</div>';
-    ensureIndex(rootId).then(function(idx){ _masterIdx=idx; buildMasterFilters(idx.items||[]); cb(idx); }).catch(function(e){console.log('master idx err',e);cb(null);}); });
+  ensureDriveScope(function(ok){
+    if(!ok){ cb(null,'scope'); return; }
+    resolveMasterRoot(function(rootId){ if(!rootId){cb(null);return;} _masterRoot=rootId;
+      var h=document.getElementById('list'); if(h) h.innerHTML='<div class="empty">Loading the master archive… (first time builds the index)</div>';
+      /* Trust a populated index; an empty one (e.g. the stale placeholder) triggers a fresh scan. */
+      ensureIndex(rootId)
+        .then(function(idx){ return (idx&&idx.items&&idx.items.length)?idx:refreshIndex(rootId); })
+        .then(function(idx){ _masterIdx=idx; buildMasterFilters(idx.items||[]); cb(idx); })
+        .catch(function(e){console.log('master idx err',e);cb(null);}); });
+  });
+}
+/* Force a full rescan of the master folder (overwrites the index.json). */
+function rebuildMaster(){
+  if(!_masterRoot){ var mr=null; try{mr=JSON.parse(localStorage.getItem(MASTER_ROOT_KEY)||'null');}catch(e){} _masterRoot=mr&&mr.id; }
+  if(!_masterRoot){ if(window.toast)toast('Open the master archive first'); return; }
+  var host=document.getElementById('list'); if(host) host.innerHTML='<div class="empty">Rebuilding the master index…</div>';
+  _masterIdx=null;
+  ensureDriveScope(function(ok){ if(!ok){ if(host)host.innerHTML='<div class="empty">Drive permission needed — reload and approve the prompt.</div>'; return; }
+    refreshIndex(_masterRoot).then(function(idx){ _masterIdx=idx; buildMasterFilters(idx.items||[]); rMaster(); }).catch(function(e){console.log('rebuild err',e); if(host)host.innerHTML='<div class="empty">Rebuild failed — see console.</div>';}); });
 }
 function rMaster(){
   var host=document.getElementById('list'); if(!host) return;
   if(!AS.token){ host.innerHTML='<div class="empty">Sign in.</div>'; return; }
-  loadMaster(function(idx){
-    if(!idx){ host.innerHTML='<div class="empty">Pick the master folder to view it.</div>'; return; }
+  loadMaster(function(idx,err){
+    if(!idx){ host.innerHTML='<div class="empty">'+(err==='scope'?'Admin/Teacher mode needs Google Drive permission — reload and approve the Drive access prompt, or click ⌂ Master folder.':'Pick the master folder to view it.')+'</div>'; return; }
     var items=idx.items||[];
     var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, fta=fTala.value, ft=fType.value, fc=fComposer.value;
     var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(fta&&it.tala!==fta)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0); return 1; });
