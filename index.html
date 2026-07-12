@@ -167,9 +167,11 @@ function aCon(k){if(!con.includes(k))con.push(k);save();badges();reRender();rCon
 function aConTitle(t){if(!con.includes(t))con.push(t);save();badges();reRender();rCon();}
 function driveMakePublic(fileId){ return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'/permissions?fields=id',{method:'POST',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:JSON.stringify({role:'reader',type:'anyone'})}).then(function(r){return r.json();}); }
 function _shareLink(title,url){
-  if(navigator.share){ navigator.share({title:title||'The Keerthana App',text:'🎵 '+(title||'')+'  ·  The Keerthana App',url:url}).catch(function(){}); return; }
-  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(function(){toast('Share link copied — paste into WhatsApp');},function(){window.prompt('Share this link:',url);}); }
-  else window.prompt('Share this link:',url);
+  var copied=false;
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url); copied=true; } }catch(e){}
+  if(navigator.share){ navigator.share({title:title||'The Keerthana App',text:'🎵 '+(title||'')+'  ·  The Keerthana App',url:url}).catch(function(){}); if(copied&&window.toast)toast('Link copied — or pick an app to share'); return; }
+  if(copied){ if(window.toast)toast('Share link copied — paste into WhatsApp / WhatsApp Web'); return; }
+  window.prompt('Share this link:',url);
 }
 /* Share a piece as an APP deep-link (?import=…) carrying its meta + public notation URL, so the
    recipient's app auto-imports a reference bundle. The notation is set public (best-effort, non-
