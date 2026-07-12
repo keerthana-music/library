@@ -175,7 +175,12 @@ window.view_browse=document.getElementById('view-browse');window.view_concert=do
 rBrowse();badges();
 // --- live catalog from the INDEX web app (falls back to embedded snapshot) ---
 function mapLive(s){return {Piece:s.piece||'',Composer:s.composer||'',Raga:s.raga||'',Tala:s.tala||'',Type:s.type||'',Link:s.link||'',Remarks:s.remarks||'',Aro:s.aro||'',Av:s.av||'',Parent:s.parent||'',FolderId:s.folderId||'',Who:''};}
-function applyCatalog(songs){ if(!Array.isArray(songs)||!songs.length) return; CAT=songs.map(mapLive); buildFilters(); rBrowse(); const t=document.querySelector('.tabs button.active'); if(t&&t.dataset.tab==='library') rLib(); }
+function applyCatalog(songs){ if(!Array.isArray(songs)||!songs.length) return; CAT=songs.map(mapLive);
+  /* When signed in, the index-based views (rMaster/rArchive) own #list and the dropdowns; the
+     legacy CAT browse must NOT clobber them or rebuild the master filters. Only the concert
+     planner still reads CAT, so refresh just that if it's the active tab. */
+  if(AS&&AS.role){ var ct=document.querySelector('.tabs button.active'); if(ct&&ct.dataset.tab==='concert') rCon(); return; }
+  buildFilters(); rBrowse(); const t=document.querySelector('.tabs button.active'); if(t&&t.dataset.tab==='library') rLib(); }
 try{ const c=JSON.parse(localStorage.getItem('kms_live')||'null'); if(c&&c.songs) applyCatalog(c.songs); }catch(e){}
 fetch(CATALOG_URL,{cache:'no-store'})
   .then(r=>r.json())
@@ -483,7 +488,7 @@ function driveFind(){
 function driveGet(id){ return fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:driveHeaders()}).then(function(r){return r.json();}); }
 function driveSyncOnLogin(){
   driveFind().then(function(id){ AS.fileId=id; return id?driveGet(id):null; })
-   .then(function(remote){ if(remote) mergeIn(remote); saveAll(); rBrowse(); badges(); var t=document.querySelector('.tabs button.active'); if(t&&t.dataset.tab==='library') rLib(); })
+   .then(function(remote){ if(remote) mergeIn(remote); saveAll(); badges(); reRender(); })
    .catch(function(e){console.log('drive sync err',e);});
 }
 function mergeIn(remote){
