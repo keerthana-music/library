@@ -140,7 +140,7 @@ printdate.textContent=new Date().toLocaleDateString(undefined,{year:'numeric',mo
 window.view_browse=document.getElementById('view-browse');window.view_library=document.getElementById('view-library');window.view_concert=document.getElementById('view-concert');
 rBrowse();badges();
 // --- live catalog from the INDEX web app (falls back to embedded snapshot) ---
-function mapLive(s){return {Piece:s.piece||'',Composer:s.composer||'',Raga:s.raga||'',Tala:s.tala||'',Type:s.type||'',Link:s.link||'',Remarks:s.remarks||'',Aro:s.aro||'',Av:s.av||'',Parent:s.parent||'',Who:''};}
+function mapLive(s){return {Piece:s.piece||'',Composer:s.composer||'',Raga:s.raga||'',Tala:s.tala||'',Type:s.type||'',Link:s.link||'',Remarks:s.remarks||'',Aro:s.aro||'',Av:s.av||'',Parent:s.parent||'',FolderId:s.folderId||'',Who:''};}
 function applyCatalog(songs){ if(!Array.isArray(songs)||!songs.length) return; CAT=songs.map(mapLive); buildFilters(); rBrowse(); const t=document.querySelector('.tabs button.active'); if(t&&t.dataset.tab==='library') rLib(); }
 try{ const c=JSON.parse(localStorage.getItem('kms_live')||'null'); if(c&&c.songs) applyCatalog(c.songs); }catch(e){}
 fetch(CATALOG_URL,{cache:'no-store'})
@@ -190,7 +190,10 @@ const AUTH={
   CLIENT_ID: '338340942516-lju3m0bc9coruem8ia2qa4vi9f1l9900.apps.googleusercontent.com',                                                         /* <-- paste your OAuth Web client ID here */
   ADMIN_EMAILS: ['uthra78@gmail.com','prabhakar.ranganathan@gmail.com','seshadri.anupama@gmail.com','aravindgomatam19@gmail.com','govindpgomatam@gmail.com'], /* master-keepers (everyone else = user). RP's monash.edu is deliberately NOT here — it's his login-as-user test id. */
   SCOPES: 'openid email profile https://www.googleapis.com/auth/drive.file',
-  LIB_FILE: 'keerthana-library.json'
+  LIB_FILE: 'keerthana-library.json',
+  PICKER_KEY: 'AIzaSyBkNHClBkhA68Tx3xy3evfdHVThGa8iPA8', /* Google Picker API browser key (referrer-restricted) */
+  APP_ID: '338340942516',                               /* Cloud project number, for the Picker */
+  ARCHIVE_ROOT: 'Keerthana Archive'                     /* app-created root folder in the user's own Drive */
 };
 let AS={token:null,email:null,role:null,trueRole:null,override:null,fileId:null,tokenClient:null};
 /* ?as=user / ?as=master — role-preview override for testers.
@@ -236,7 +239,7 @@ function renderAuthBar(){
   var bar=document.getElementById('authBar');
   if(!bar){ bar=document.createElement('div'); bar.id='authBar'; (document.querySelector('header')||document.body).appendChild(bar); }
   bar.innerHTML = AS.email
-    ? '<span class="who">'+AS.email+' · '+AS.role+(AS.override?' · preview':'')+'</span><button onclick="authSignOut()">Sign out</button>'
+    ? '<span class="who">'+AS.email+' · '+AS.role+(AS.override?' · preview':'')+'</span><button onclick="openAdd()">＋ Add</button><button onclick="authSignOut()">Sign out</button>'
     : '<button onclick="authSignIn()">Sign in with Google</button>';
 }
 function applyRole(){
@@ -316,5 +319,134 @@ function saveAll(){
       .then(function(r){return r.json();}).then(function(d){AS.fileId=d.id;}).catch(function(e){console.log('create err',e);});
   }
 }
+/* ================= Item 4: Add — Google Picker → create a kms-bundle/1 bundle =================
+   v1 targets the user's own archive (AUTH.ARCHIVE_ROOT). createBundle(rootId, spec) takes the
+   root as a parameter so the same path serves the manager/master target and promote flow (Item 7).
+   Uses drive.file: app-owned folders it creates + the file the user grants via the Picker. */
+var _pickerReady=false,_pickerLoading=false;
+function loadPicker(cb){
+  if(_pickerReady) return cb();
+  var start=function(){ gapi.load('picker',{callback:function(){ _pickerReady=true; cb(); }}); };
+  if(window.gapi&&window.gapi.load) return start();
+  if(_pickerLoading){ var t=setInterval(function(){ if(window.gapi&&window.gapi.load){ clearInterval(t); start(); } },150); return; }
+  _pickerLoading=true;
+  var s=document.createElement('script'); s.src='https://apis.google.com/js/api.js'; s.onload=start; document.head.appendChild(s);
+}
+function openPicker(onPick){
+  if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
+  loadPicker(function(){
+    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setSelectFolderEnabled(false);
+    var picker=new google.picker.PickerBuilder()
+      .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID)
+      .addView(view).setTitle('Choose a file to add')
+      .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){ var d=data.docs[0]; onPick({fileId:d.id,fileName:d.name||''}); } })
+      .build();
+    picker.setVisible(true);
+  });
+}
+/* ---- Drive write helpers ---- */
+function driveCreateFolder(name,parentId){
+  var meta={name:name,mimeType:'application/vnd.google-apps.folder'}; if(parentId) meta.parents=[parentId];
+  return fetch('https://www.googleapis.com/drive/v3/files?fields=id',{method:'POST',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:JSON.stringify(meta)}).then(function(r){return r.json();}).then(function(d){return d.id;});
+}
+function driveFindFolder(name,parentId){
+  var q="name='"+String(name).replace(/'/g,"\\'")+"' and mimeType='application/vnd.google-apps.folder' and trashed=false"+(parentId?(" and '"+parentId+"' in parents"):'');
+  return fetch('https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&q='+encodeURIComponent(q),{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){return (d.files&&d.files[0])?d.files[0].id:null;});
+}
+function driveEnsureFolder(name,parentId){ return driveFindFolder(name,parentId).then(function(id){ return id||driveCreateFolder(name,parentId); }); }
+function driveWriteJson(name,obj,parentId){
+  var b='kms'+Math.random().toString(36).slice(2);
+  var meta={name:name,mimeType:'application/json'}; if(parentId) meta.parents=[parentId];
+  var body='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+'\r\n--'+b+'\r\nContent-Type: application/json\r\n\r\n'+JSON.stringify(obj,null,2)+'\r\n--'+b+'--';
+  return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',{method:'POST',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'multipart/related; boundary='+b},body:body}).then(function(r){return r.json();}).then(function(d){return d.id;});
+}
+function driveMoveInto(fileId,folderId){
+  var addOnly=function(){ return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?addParents='+folderId+'&fields=id',{method:'PATCH',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json();}); };
+  return fetch('https://www.googleapis.com/drive/v3/files/'+fileId+'?fields=parents',{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){
+    var rem=(d.parents||[]).join(',');
+    var u='https://www.googleapis.com/drive/v3/files/'+fileId+'?addParents='+folderId+(rem?('&removeParents='+rem):'')+'&fields=id';
+    return fetch(u,{method:'PATCH',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:'{}'}).then(function(r){ return r.ok?r.json():addOnly(); });
+  }).catch(addOnly);
+}
+function safeName(s){ return String(s||'').replace(/[\/\\]+/g,'-').replace(/\s+/g,' ').trim(); }
+function pieceFolderName(title,raga){ return safeName(raga?(title+' - '+raga):title); }
+function ensureArchiveRoot(){ return driveEnsureFolder(AUTH.ARCHIVE_ROOT,null); }
+/* ---- Orchestration: create a bundle under rootId from a spec ---- */
+function createBundle(rootId,spec){
+  if(spec.type==='piece'){
+    return driveEnsureFolder(pieceFolderName(spec.title,spec.raga),rootId).then(function(bid){
+      var meta={schema:'kms-bundle/1',type:'piece',title:spec.title,id:bid,label:'',
+        meta:{raga:spec.raga||'',tala:spec.tala||'',composer:spec.composer||'',pieceType:spec.pieceType||'',remarks:'',aro:spec.aro||'',av:spec.av||'',parent:spec.parent||''},
+        files:spec.fileName?[spec.fileName]:[],items:[],updated:new Date().toISOString()};
+      return (spec.fileId?driveMoveInto(spec.fileId,bid):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,bid);}).then(function(){return bid;});
+    });
+  }
+  return driveEnsureFolder(pieceFolderName(spec.parentTitle,spec.parentRaga),rootId).then(function(pid){
+    return driveEnsureFolder(safeName(spec.title||(spec.type+'-'+Date.now())),pid).then(function(cid){
+      var meta={schema:'kms-bundle/1',type:spec.type,title:spec.title||spec.type,id:cid,label:spec.label||'',
+        meta:spec.meta||{},files:spec.fileName?[spec.fileName]:[],items:[],updated:new Date().toISOString()};
+      return (spec.fileId?driveMoveInto(spec.fileId,cid):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,cid);}).then(function(){return cid;});
+    });
+  });
+}
+/* ---- Add wizard UI ---- */
+(function(){
+  var css=document.createElement('style');
+  css.textContent="#kAdd{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:55;padding:16px}"
+   +"#kAdd .box{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-height:90vh;overflow:auto}"
+   +"#kAdd h3{margin:0 0 12px;color:#7a1f2b;font-size:19px}"
+   +"#kAdd label{display:block;font-size:12px;color:#8a7d70;margin:10px 0 3px}"
+   +"#kAdd input,#kAdd select{width:100%;border:1px solid #e7ddcc;border-radius:9px;padding:9px 10px;font-size:14px;color:#2a221c;background:#fff}"
+   +"#kAdd .file{font-size:12.5px;color:#6b5330;background:#f3e9d6;border-radius:8px;padding:8px 10px}"
+   +"#kAdd .row{display:flex;gap:8px;margin-top:16px}#kAdd .row button{flex:1;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer}"
+   +"#kAdd .go{background:#7a1f2b;color:#fff}#kAdd .no{background:#f3e9d6;color:#6b5330}";
+  document.head.appendChild(css);
+  var dl=function(id,vals){ return '<datalist id="'+id+'">'+(vals||[]).map(function(v){return '<option value="'+esc(v)+'">';}).join('')+'</datalist>'; };
+  var m=document.createElement('div'); m.id='kAdd';
+  m.innerHTML='<div class="box"><h3>Add to your archive</h3>'
+   +'<div class="file" id="kaFile">No file chosen</div>'
+   +'<label>What is it?</label><select id="kaType"><option value="piece">Piece (notation)</option><option value="audio">Audio</option><option value="note">Note</option><option value="link">Link</option><option value="other">Other</option></select>'
+   +'<label>Name</label><input id="kaName" placeholder="e.g. Vatapi Ganapatim">'
+   +'<div id="kaPiece"><label>Raga</label><input id="kaRaga" list="kaRagaL" placeholder="raga">'
+   +'<label>Tala</label><input id="kaTala" list="kaTalaL" placeholder="tala">'
+   +'<label>Composer</label><input id="kaComp" list="kaCompL" placeholder="composer"></div>'
+   +'<div id="kaChild" style="display:none"><label>Attach to which piece?</label><input id="kaParent" list="kaParentL" placeholder="type a piece name"></div>'
+   +dl('kaRagaL',(typeof META!=='undefined'&&META.ragas)||[])+dl('kaTalaL',(typeof META!=='undefined'&&META.talas)||[])+dl('kaCompL',(typeof META!=='undefined'&&META.composers)||[])
+   +'<datalist id="kaParentL">'+CAT.map(function(r){return '<option value="'+esc(r.Piece)+'">';}).join('')+'</datalist>'
+   +'<div class="row"><button class="no" id="kaCancel">Cancel</button><button class="go" id="kaGo">Create bundle</button></div></div>';
+  document.body.appendChild(m);
+  var picked={fileId:'',fileName:''};
+  function toggle(){ var t=document.getElementById('kaType').value; document.getElementById('kaPiece').style.display=(t==='piece')?'':'none'; document.getElementById('kaChild').style.display=(t==='piece')?'none':''; }
+  document.getElementById('kaType').onchange=toggle;
+  document.getElementById('kaCancel').onclick=function(){ m.style.display='none'; };
+  document.getElementById('kaGo').onclick=function(){
+    if(!AS.token){ toast('Sign in first'); return; }
+    var t=document.getElementById('kaType').value, name=document.getElementById('kaName').value.trim();
+    if(!name){ toast('Give it a name'); return; }
+    var spec={type:t,title:name,fileId:picked.fileId,fileName:picked.fileName};
+    if(t==='piece'){
+      spec.raga=document.getElementById('kaRaga').value.trim(); spec.tala=document.getElementById('kaTala').value.trim(); spec.composer=document.getElementById('kaComp').value.trim();
+      var known=CAT.find(function(r){return r.Piece===name||(spec.raga&&r.Raga===spec.raga);}); if(known){ spec.aro=known.Aro; spec.av=known.Av; spec.parent=known.Parent; }
+    } else {
+      var pt=document.getElementById('kaParent').value.trim(); if(!pt){ toast('Choose the piece to attach to'); return; }
+      var pr=CAT.find(function(r){return r.Piece===pt;}); spec.parentTitle=pt; spec.parentRaga=pr?pr.Raga:'';
+    }
+    var go=document.getElementById('kaGo'); go.textContent='Creating…'; go.disabled=true;
+    ensureArchiveRoot().then(function(root){ return createBundle(root,spec); })
+      .then(function(){ toast('Added to your archive ✓'); m.style.display='none'; })
+      .catch(function(e){ console.log('add err',e); toast('Could not add — see console'); })
+      .then(function(){ go.textContent='Create bundle'; go.disabled=false; });
+  };
+  window.openAdd=function(){
+    if(!AS.token){ toast('Sign in first'); return; }
+    openPicker(function(p){
+      picked=p;
+      document.getElementById('kaFile').textContent=p.fileName||'(file chosen)';
+      document.getElementById('kaName').value=(p.fileName||'').replace(/\.[^.]+$/,'');
+      document.getElementById('kaType').value='piece'; toggle();
+      m.style.display='flex';
+    });
+  };
+})();
 authInit();
 </script></body></html>
