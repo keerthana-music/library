@@ -83,7 +83,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
  <div id="conList"></div>
 </div>
 <div id="view-archive" style="display:none">
- <div class="controls"><input id="qArc" placeholder="Search your archive…"><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button></div>
+ <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button></div>
  <div class="note">Your own archive in Drive — notation, audio, notes you Add appear here.</div>
  <div id="arcList"></div>
 </div>
@@ -167,6 +167,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.que
  if(t=='concert')rCon();if(t=='resources')rResources();});
 ['q','fRaga','fType','fComposer'].forEach(id=>document.getElementById(id).addEventListener('input',rMaster));
 var _qa=document.getElementById('qArc');if(_qa)_qa.addEventListener('input',rArchive);
+['fRagaA','fTypeA','fComposerA'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',rArchive);});
 clearCon.onclick=()=>{if(confirm('Clear the whole concert order?')){con=[];save();badges();rCon();}};
 printdate.textContent=new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
 window.view_browse=document.getElementById('view-browse');window.view_concert=document.getElementById('view-concert');
@@ -259,7 +260,7 @@ function authInit(){
 }
 function authSignIn(){ if(AS.tokenClient) AS.tokenClient.requestAccessToken(); }
 /* Sign out clears local state only (no token revoke), so signing back in doesn't re-prompt for consent every time. */
-function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.isAdmin=false;AS.fileId=null; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
+function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.isAdmin=false;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
 function onToken(tok){
   AS.token=tok;
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
@@ -294,6 +295,8 @@ function applyAuthView(){
   if(landing) landing.style.display=signedIn?'none':'';
   if(tabs) tabs.style.display=signedIn?'':'none';
   if(!signedIn){ ['view-browse','view-archive','view-concert','view-resources'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; }); return; }
+  /* Admin edits the master archive and has no concert planner; hide the Concert tab for master, show it for users. */
+  var conBtn=document.querySelector('.tabs button[data-tab="concert"]'); if(conBtn) conBtn.style.display=(AS.role==='master')?'none':'';
   var b=document.querySelector('.tabs button[data-tab="archive"]'); if(b) b.click();
 }
 function driveHeaders(){ return {Authorization:'Bearer '+AS.token}; }
@@ -407,17 +410,40 @@ function _bundleCard(tree){
     +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle(\''+tq+'\')">'+(inc?'✓':'＋')+'</button>'
     +_notationLink(tree)+'</div></div>';
 }
+/* User Archive: cache the index once, derive Raga/Type/Composer filters from the user's own
+   items, then filter locally. Same filter set and semantics as the master (rMaster). */
+var _arcIdx=null,_arcRoot=null;
+function buildArchiveFilters(items){
+  _fillSel('fRagaA','All ragas',_uniq(items.map(function(i){return i.raga;})));
+  _fillSel('fTypeA','All types',_uniq(items.map(function(i){return i.pieceType;})));
+  _fillSel('fComposerA','All composers',_uniq(items.map(function(i){return i.composer;})));
+}
+function loadArchive(cb){
+  if(_arcIdx) return cb(_arcIdx);
+  ensureArchiveRoot().then(function(rootId){ _arcRoot=rootId; return ensureIndex(rootId); })
+    .then(function(idx){ _arcIdx=idx; buildArchiveFilters((idx&&idx.items)||[]); cb(idx); })
+    .catch(function(e){ console.log('archive err',e); cb(null); });
+}
 function rArchive(){
   var host=document.getElementById('arcList'); if(!host) return;
   if(!AS.token){ host.innerHTML='<div class="empty">Sign in to see your archive.</div>'; return; }
-  host.innerHTML='<div class="empty">Loading your archive…</div>';
-  ensureArchiveRoot().then(function(rootId){ return ensureIndex(rootId); }).then(function(idx){
+  if(!_arcIdx) host.innerHTML='<div class="empty">Loading your archive…</div>';
+  loadArchive(function(idx){
+    if(!idx){ host.innerHTML='<div class="empty">Could not load your archive — see console.</div>'; return; }
     var items=(idx&&idx.items)||[];
     var q=((document.getElementById('qArc')||{}).value||'').trim().toLowerCase();
-    var out=items.filter(function(it){ if(favOnly&&!star.has(it.id))return false; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')).toLowerCase().indexOf(q)>=0); return true; });
+    var fr=((document.getElementById('fRagaA')||{}).value)||'', ft=((document.getElementById('fTypeA')||{}).value)||'', fc=((document.getElementById('fComposerA')||{}).value)||'';
+    var out=items.filter(function(it){
+      if(fr&&it.raga!==fr)return false;
+      if(ft&&it.pieceType!==ft)return false;
+      if(fc&&it.composer!==fc)return false;
+      if(favOnly&&!star.has(it.id))return false;
+      if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0);
+      return true;
+    });
     host.innerHTML=out.length?out.map(_indexCard).join('')
       :'<div class="empty">'+(items.length?'No matches.':'Nothing in your archive yet. Use ＋ Add to bring in notation, audio, or notes.')+'</div>';
-  }).catch(function(e){ console.log('archive err',e); host.innerHTML='<div class="empty">Could not load your archive — see console.</div>'; });
+  });
 }
 function rResources(){
   var host=document.getElementById('resList'); if(!host) return;
@@ -617,7 +643,7 @@ function createBundle(rootId,spec){
     var go=document.getElementById('kaGo'); go.textContent='Creating…'; go.disabled=true;
     createBundle(_targetRoot,spec)
       .then(function(topId){ return addToIndex(_targetRoot,topId); })
-      .then(function(){ if(AS.role==='master') _masterIdx=null; toast(AS.role==='master'?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
+      .then(function(){ if(AS.role==='master') _masterIdx=null; else _arcIdx=null; toast(AS.role==='master'?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
       .catch(function(e){ console.log('add err',e); toast('Could not add — see console'); })
       .then(function(){ go.textContent='Create bundle'; go.disabled=false; });
   };
@@ -704,7 +730,7 @@ window.openImport=function(){
   document.getElementById('imGo').onclick=function(){
     var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0;
     (function next(){
-      if(i>=rows.length){ go.disabled=false; if(AS.role==='master') _masterIdx=null; toast('Imported '+ok+' of '+rows.length); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
+      if(i>=rows.length){ go.disabled=false; if(AS.role==='master') _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
       var r=rows[i], p=r.prop; go.textContent='Importing '+(i+1)+'/'+rows.length+'…';
       var spec={type:'piece',title:p.title||r.file.name,raga:p.raga,tala:p.tala,composer:p.composer,pieceType:p.pieceType,aro:p.aro,av:p.av,parent:p.parent,fileId:r.file.id,fileName:r.file.name};
       createBundle(_impRoot,spec).then(function(topId){ return addToIndex(_impRoot,topId); }).then(function(){ ok++; i++; next(); }).catch(function(e){ console.log('import row err',e); i++; next(); });
