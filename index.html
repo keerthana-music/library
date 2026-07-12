@@ -280,7 +280,7 @@ function renderAuthBar(){
   if(AS.email){
     var label=AS.role?(AS.role==='master'?'Admin':'User'):'…';
     var sw=AS.isAdmin?'<button onclick="showRoleChooser()" title="Switch role">⇄</button>':'';
-    bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button>':'')+sw+'<button onclick="authSignOut()">Sign out</button>';
+    bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button><button onclick="openImport()">⇪ Import</button>':'')+sw+'<button onclick="authSignOut()">Sign out</button>';
   } else {
     bar.innerHTML='<button onclick="authSignIn()">Sign in with Google</button>';
   }
@@ -635,6 +635,82 @@ function createBundle(rootId,spec){
       });
     });
   };
+})();
+/* ================= Item 5: Import — bulk PDFs → matched piece bundles =================
+   Multi-select Picker → match each filename against the master catalogue then the karnatik
+   dictionary → editable review list → create piece bundles + update the index. */
+var _dict=null,_dictKey=null,_catKey={},_impRoot=null;
+function normKey(name){ var s=String(name||'').toLowerCase(); s=s.replace(/\([^)]*\)/g,''); s=s.replace(/\.[a-z0-9]+$/,''); s=s.replace(/[^a-z]/g,''); s=s.replace(/(.)\1+/g,'$1'); return s; }
+function loadDict(cb){ if(_dict) return cb(_dict);
+  fetch('krithi-dictionary.json',{cache:'force-cache'}).then(function(r){return r.json();}).then(function(d){ _dict=d; _dictKey={}; d.forEach(function(e){ if(e.key&&!_dictKey[e.key]) _dictKey[e.key]=e; }); cb(d); }).catch(function(e){ console.log('dict load err',e); _dict=[]; _dictKey={}; cb([]); }); }
+function catKeyMap(){ _catKey={}; CAT.forEach(function(r){ var k=normKey(r.Piece); if(k&&!_catKey[k]) _catKey[k]=r; }); return _catKey; }
+function matchFile(name){
+  var base=String(name).replace(/\.[^.]+$/,''); var k=normKey(base);
+  var c=_catKey[k]; if(c) return {title:c.Piece,raga:c.Raga||'',tala:c.Tala||'',composer:c.Composer||'',pieceType:c.Type||'',aro:c.Aro||'',av:c.Av||'',parent:c.Parent||'',match:'catalog'};
+  var dd=_dictKey&&_dictKey[k]; if(dd) return {title:dd.name,raga:dd.raga||'',tala:'',composer:dd.composer||'',pieceType:'',aro:'',av:'',parent:'',match:'dictionary'};
+  return {title:base,raga:'',tala:'',composer:'',pieceType:'',aro:'',av:'',parent:'',match:'none'};
+}
+function openMultiPicker(onPick){
+  if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
+  loadPicker(function(){
+    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setSelectFolderEnabled(false);
+    var picker=new google.picker.PickerBuilder().enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+      .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID)
+      .addView(view).setTitle('Choose files to import')
+      .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){ onPick((data.docs||[]).map(function(d){return {id:d.id,name:d.name||''};})); } }).build();
+    picker.setVisible(true);
+  });
+}
+window.openImport=function(){
+  if(!AS.token){ toast('Sign in first'); return; }
+  resolveTargetRoot(function(rootId){ if(!rootId){ toast('No target folder'); return; } _impRoot=rootId;
+    loadDict(function(){ catKeyMap();
+      openMultiPicker(function(files){ if(!files||!files.length) return; _impRows(files.map(function(f){ return {file:f, prop:matchFile(f.name)}; })); });
+    });
+  });
+};
+(function(){
+  var css=document.createElement('style');
+  css.textContent="#kImp2{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:58;padding:12px}"
+   +"#kImp2 .box{background:#fff;border-radius:16px;max-width:640px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)}"
+   +"#kImp2 .hd{padding:18px 20px 8px}#kImp2 h3{margin:0;color:#7a1f2b;font-size:19px}#kImp2 .hm{color:#8a7d70;font-size:12.5px;margin-top:3px}"
+   +"#kImp2 .list{overflow:auto;padding:8px 20px;flex:1}"
+   +"#kImp2 .irow{border:1px solid #e7ddcc;border-radius:10px;padding:9px 11px;margin-bottom:8px}"
+   +"#kImp2 .fn{font-size:11px;color:#a08b6f;word-break:break-all;margin-bottom:5px}"
+   +"#kImp2 .badge2{font-size:10px;padding:1px 7px;border-radius:999px;margin-left:6px}"
+   +"#kImp2 .mok{background:#e6efe9;color:#2e7d5b}#kImp2 .mdi{background:#eddfce;color:#7a1f2b}#kImp2 .mno{background:#f6e2e2;color:#b23}"
+   +"#kImp2 .flds{display:grid;grid-template-columns:2fr 1fr 1.4fr;gap:6px}"
+   +"#kImp2 input{border:1px solid #e7ddcc;border-radius:7px;padding:6px 8px;font-size:12.5px;width:100%}"
+   +"#kImp2 .ft{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:8px}#kImp2 .ft button{flex:1;border:0;border-radius:10px;padding:12px;font-weight:600;font-size:14px;cursor:pointer}"
+   +"#kImp2 .go{background:#7a1f2b;color:#fff}#kImp2 .no{background:#f3e9d6;color:#6b5330}";
+  document.head.appendChild(css);
+  var m=document.createElement('div'); m.id='kImp2';
+  m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="go" id="imGo">Import</button></div></div>';
+  document.body.appendChild(m);
+  var rows=[];
+  var badge=function(mt){ return mt==='catalog'?'<span class="badge2 mok">matched</span>':mt==='dictionary'?'<span class="badge2 mdi">from karnatik</span>':'<span class="badge2 mno">unidentified</span>'; };
+  function render(){
+    var matched=rows.filter(function(r){return r.prop.match!=='none';}).length;
+    document.getElementById('imHm').textContent=rows.length+' files · '+matched+' auto-matched · '+(rows.length-matched)+' to check';
+    document.getElementById('imList').innerHTML=rows.map(function(r,i){ var p=r.prop;
+      return '<div class="irow"><div class="fn">'+esc(r.file.name)+badge(p.match)+'</div>'
+        +'<div class="flds"><input data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
+        +'<input data-i="'+i+'" data-f="raga" value="'+esc(p.raga)+'" placeholder="raga">'
+        +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div></div>'; }).join('');
+    document.getElementById('imList').querySelectorAll('input').forEach(function(inp){ inp.addEventListener('input',function(){ rows[+inp.dataset.i].prop[inp.dataset.f]=inp.value; }); });
+    document.getElementById('imGo').textContent='Import '+rows.length+' piece'+(rows.length===1?'':'s');
+  }
+  document.getElementById('imCancel').onclick=function(){ m.style.display='none'; };
+  document.getElementById('imGo').onclick=function(){
+    var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0;
+    (function next(){
+      if(i>=rows.length){ go.disabled=false; if(AS.role==='master') _masterIdx=null; toast('Imported '+ok+' of '+rows.length); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
+      var r=rows[i], p=r.prop; go.textContent='Importing '+(i+1)+'/'+rows.length+'…';
+      var spec={type:'piece',title:p.title||r.file.name,raga:p.raga,tala:p.tala,composer:p.composer,pieceType:p.pieceType,aro:p.aro,av:p.av,parent:p.parent,fileId:r.file.id,fileName:r.file.name};
+      createBundle(_impRoot,spec).then(function(topId){ return addToIndex(_impRoot,topId); }).then(function(){ ok++; i++; next(); }).catch(function(e){ console.log('import row err',e); i++; next(); });
+    })();
+  };
+  window._impRows=function(rws){ rows=rws; render(); m.style.display='flex'; };
 })();
 /* ---- Admin/User role chooser (shown to admin-eligible accounts at sign-in) ---- */
 (function(){
