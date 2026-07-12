@@ -754,22 +754,53 @@ function matchFile(name){
 function openMultiPicker(onPick){
   if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
   loadPicker(function(){
-    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setSelectFolderEnabled(false);
+    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setSelectFolderEnabled(false).setMimeTypes('application/pdf');
     var picker=new google.picker.PickerBuilder().enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
       .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID)
-      .addView(view).setTitle('Choose files to import')
+      .addView(view).setTitle('Select the PDF files to import (not the folder)')
       .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){ onPick((data.docs||[]).map(function(d){return {id:d.id,name:d.name||''};})); } }).build();
     picker.setVisible(true);
   });
 }
 window.openImport=function(){
   if(!AS.token){ toast('Sign in first'); return; }
-  resolveTargetRoot(function(rootId){ if(!rootId){ toast('No target folder'); return; } _impRoot=rootId;
-    loadDict(function(){ catKeyMap();
-      openMultiPicker(function(files){ if(!files||!files.length) return; _impRows(files.map(function(f){ return {file:f, prop:matchFile(f.name)}; })); });
-    });
+  loadDict(function(){ catKeyMap();
+    if(onMaster()){
+      /* Admin/Teacher: elevate, resolve the master, pick a SOURCE folder, walk it. */
+      ensureDriveScope(function(ok){ if(!ok){ toast('Drive permission needed to import to the master'); return; }
+        resolveTargetRoot(function(rootId){ if(!rootId){ toast('No master folder'); return; } _impRoot=rootId;
+          openFolderPicker('Select the folder of PDFs (and/or existing bundles) to import into the master',function(f){
+            walkImportFolder(f.id,function(rows,skipped){ if(!rows.length){ toast(skipped?('Nothing importable — '+skipped+' item(s) skipped'):'That folder has no PDFs or bundles'); return; } _impRows(rows,skipped); });
+          });
+        });
+      });
+    } else {
+      /* User (drive.file): multi-select the PDF files themselves. */
+      resolveTargetRoot(function(rootId){ if(!rootId){ toast('No target folder'); return; } _impRoot=rootId;
+        toast('Select the PDF files themselves — not the folder that contains them');
+        openMultiPicker(function(files){ if(!files||!files.length) return; _impRows(files.map(function(f){ return {kind:'new', file:f, prop:matchFile(f.name)}; }),0); });
+      });
+    }
   });
 };
+/* Admin/Teacher only (drive scope): walk a picked source folder — loose PDFs become new bundles,
+   sub-folders that already have a bundle.json are adopted, everything else is skipped. */
+function walkImportFolder(folderId,cb){
+  driveListChildren(folderId).then(function(kids){
+    var rows=[], skipped=0, reads=[];
+    (kids||[]).forEach(function(k){
+      if(k.mimeType==='application/vnd.google-apps.folder'){
+        reads.push(readBundle(k.id).then(function(b){
+          if(b&&b.meta){ var m=b.meta, mm=m.meta||{}; rows.push({kind:'existing',folderId:k.id,name:k.name,prop:{title:m.title||k.name,raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',pieceType:mm.pieceType||'',match:'bundle'}}); }
+          else { skipped++; }
+        }).catch(function(){ skipped++; }));
+      } else if(k.mimeType==='application/pdf' || /\.pdf$/i.test(k.name||'')){
+        rows.push({kind:'new',file:{id:k.id,name:k.name},prop:matchFile(k.name)});
+      } else { skipped++; }
+    });
+    Promise.all(reads).then(function(){ cb(rows,skipped); });
+  }).catch(function(e){ console.log('walk err',e); cb([],0); });
+}
 (function(){
   var css=document.createElement('style');
   css.textContent="#kImp2{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:58;padding:12px}"
@@ -788,30 +819,44 @@ window.openImport=function(){
   var m=document.createElement('div'); m.id='kImp2';
   m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="go" id="imGo">Import</button></div></div>';
   document.body.appendChild(m);
-  var rows=[];
-  var badge=function(mt){ return mt==='catalog'?'<span class="badge2 mok">matched</span>':mt==='dictionary'?'<span class="badge2 mdi">from karnatik</span>':'<span class="badge2 mno">unidentified</span>'; };
+  var rows=[], _skipped=0;
+  var badge=function(mt){ return mt==='catalog'?'<span class="badge2 mok">matched</span>':mt==='dictionary'?'<span class="badge2 mdi">from karnatik</span>':mt==='bundle'?'<span class="badge2 mok">existing bundle</span>':'<span class="badge2 mno">unidentified</span>'; };
   function render(){
-    var matched=rows.filter(function(r){return r.prop.match!=='none';}).length;
-    document.getElementById('imHm').textContent=rows.length+' files · '+matched+' auto-matched · '+(rows.length-matched)+' to check';
+    var news=rows.filter(function(r){return r.kind!=='existing';}), exi=rows.filter(function(r){return r.kind==='existing';});
+    var matched=news.filter(function(r){return r.prop.match!=='none';}).length;
+    document.getElementById('imHm').textContent=rows.length+' item'+(rows.length===1?'':'s')+' · '+news.length+' new ('+matched+' matched) · '+exi.length+' existing'+(_skipped?(' · '+_skipped+' skipped'):'');
     document.getElementById('imList').innerHTML=rows.map(function(r,i){ var p=r.prop;
+      if(r.kind==='existing'){
+        return '<div class="irow"><div class="fn">'+esc(r.name)+badge('bundle')+'</div>'
+          +'<div style="font-size:12.5px;color:#6b5330">'+esc(p.title)+(p.raga?' · '+esc(p.raga):'')+(p.composer?' · '+esc(p.composer):'')+'</div></div>';
+      }
       return '<div class="irow"><div class="fn">'+esc(r.file.name)+badge(p.match)+'</div>'
         +'<div class="flds"><input data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
         +'<input data-i="'+i+'" data-f="raga" value="'+esc(p.raga)+'" placeholder="raga">'
         +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div></div>'; }).join('');
     document.getElementById('imList').querySelectorAll('input').forEach(function(inp){ inp.addEventListener('input',function(){ rows[+inp.dataset.i].prop[inp.dataset.f]=inp.value; }); });
-    document.getElementById('imGo').textContent='Import '+rows.length+' piece'+(rows.length===1?'':'s');
+    document.getElementById('imGo').textContent='Import '+rows.length+' item'+(rows.length===1?'':'s');
   }
   document.getElementById('imCancel').onclick=function(){ m.style.display='none'; };
   document.getElementById('imGo').onclick=function(){
-    var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0;
+    var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0, dup=0;
+    var idx=onMaster()?_masterIdx:_arcIdx, have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
     (function next(){
-      if(i>=rows.length){ go.disabled=false; if(onMaster()) _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
-      var r=rows[i], p=r.prop; go.textContent='Importing '+(i+1)+'/'+rows.length+'…';
-      var spec={type:'piece',title:p.title||r.file.name,raga:p.raga,tala:p.tala,composer:p.composer,pieceType:p.pieceType,aro:p.aro,av:p.av,parent:p.parent,fileId:r.file.id,fileName:r.file.name};
-      createBundle(_impRoot,spec).then(function(topId){ return addToIndex(_impRoot,topId); }).then(function(){ ok++; i++; next(); }).catch(function(e){ console.log('import row err',e); i++; next(); });
+      if(i>=rows.length){ go.disabled=false; if(onMaster()) _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length+(dup?(' · '+dup+' already present'):'')); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
+      var r=rows[i], p=r.prop, title=(p.title||(r.file&&r.file.name)||r.name||'');
+      if(have[title.toLowerCase()]){ dup++; i++; go.textContent='Skipping duplicate '+i+'/'+rows.length+'…'; return next(); }
+      go.textContent='Importing '+(i+1)+'/'+rows.length+'…';
+      var done=function(){ have[title.toLowerCase()]=true; ok++; i++; next(); };
+      var fail=function(e){ console.log('import row err',e); i++; next(); };
+      if(r.kind==='existing'){
+        driveMoveInto(r.folderId,_impRoot).then(function(){ return addToIndex(_impRoot,r.folderId); }).then(done).catch(fail);
+      } else {
+        var spec={type:'piece',title:title,raga:p.raga,tala:p.tala,composer:p.composer,pieceType:p.pieceType,aro:p.aro,av:p.av,parent:p.parent,fileId:r.file.id,fileName:r.file.name};
+        createBundle(_impRoot,spec).then(function(topId){ return addToIndex(_impRoot,topId); }).then(done).catch(fail);
+      }
     })();
   };
-  window._impRows=function(rws){ rows=rws; render(); m.style.display='flex'; };
+  window._impRows=function(rws,skipped){ rows=rws; _skipped=skipped||0; render(); m.style.display='flex'; };
 })();
 /* ---- Admin/User role chooser (shown to admin-eligible accounts at sign-in) ---- */
 (function(){
