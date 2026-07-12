@@ -138,14 +138,25 @@ function rBrowse(){const q=document.getElementById('q').value.trim().toLowerCase
  list.innerHTML=out.length?out.map(card).join(''):'<div class="empty">No matches.</div>';}
 function rLib(){const imp=Object.values(imported);const starred=CAT.filter(r=>star.has(key(r))&&!imported[key(r)]);const out=imp.concat(starred);
  libList.innerHTML=out.length?out.map(r=>card(r,!!imported[key(r)])).join(''):'<div class="empty">Nothing here yet. Star songs, or open a shared link to add one.</div>';}
+/* Resolve a concert entry (keyed by title) across the current data sources — master index,
+   personal index, then the legacy catalog — so meta + notation show wherever the piece came from. */
+function _conRow(k){
+  var pools=[]; if(_masterIdx&&_masterIdx.items)pools.push(_masterIdx.items); if(_arcIdx&&_arcIdx.items)pools.push(_arcIdx.items);
+  for(var p=0;p<pools.length;p++){ var it=pools[p].find(function(x){return (x.title||'')===k;});
+    if(it) return {Piece:it.title||k, Raga:it.raga||'', Tala:it.tala||'', Type:it.pieceType||'', Composer:it.composer||'', notationUrl: it.notationId?('https://drive.google.com/file/d/'+it.notationId+'/view'):''}; }
+  var r=CAT.find(function(x){return key(x)===k;});
+  if(r) return {Piece:r.Piece, Raga:r.Raga||'', Tala:r.Tala||'', Type:r.Type||'', Composer:r.Composer||'', notationUrl:r.Link||''};
+  return {Piece:k, Raga:'', Tala:'', Type:'', Composer:'', notationUrl:''};
+}
 function rCon(){if(!con.length){conList.innerHTML='<div class="empty">Concert is empty. Add songs with ＋ from your Archive.</div>';pbody.innerHTML='';return;}
- conList.innerHTML=con.map((k,i)=>{const r=CAT.find(x=>key(x)===k)||{Piece:k};
+ conList.innerHTML=con.map((k,i)=>{const r=_conRow(k);
   return `<div class="citem"><div class="cnum">${i+1}</div><div class="cinfo">
    <div class="p">${esc(r.Piece)}</div><div class="m">${[r.Raga,r.Tala,r.Type,r.Composer].filter(Boolean).map(esc).join(' · ')}</div>
    <label style="font-size:11px;color:#8a7d70">Shruthi <input value="${esc(sh[k]||'')}" onchange="setSh('${esc(k)}',this.value)" placeholder="e.g. G#"></label></div>
+   ${r.notationUrl?`<a class="iconbtn" href="${esc(r.notationUrl)}" target="_blank" rel="noopener" title="Open notation">📄</a>`:`<span class="iconbtn dis" title="No notation linked">📄</span>`}
    <div class="move"><button onclick="mv(${i},-1)">▲</button><button onclick="mv(${i},1)">▼</button></div>
    <button class="crm" onclick="rm(${i})">×</button></div>`;}).join('');
- pbody.innerHTML=con.map((k,i)=>{const r=CAT.find(x=>key(x)===k)||{Piece:k};
+ pbody.innerHTML=con.map((k,i)=>{const r=_conRow(k);
   return `<tr><td>${i+1}</td><td>${esc(r.Piece)}</td><td>${esc(r.Raga||'')}</td><td>${esc(r.Tala||'')}</td><td>${esc(r.Composer||'')}</td><td>${esc(sh[k]||'')}</td></tr>`;}).join('');}
 function badges(){var cb=document.getElementById('conBadge');if(cb)cb.textContent=con.length;}
 function reRender(){var b=document.querySelector('.tabs button.active');var t=b?b.dataset.tab:'';if(t==='archive'){onMaster()?rMaster():rArchive();}else if(t==='concert')rCon();else if(t==='resources')rResources();}
