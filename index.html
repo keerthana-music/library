@@ -301,7 +301,12 @@ function processImport(payload){
 (function(){var s=document.createElement('style');s.textContent="header{position:relative}"
  +"#authBar{position:absolute;top:14px;right:18px;display:flex;align-items:center;gap:8px;z-index:5}"
  +"#authBar button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}"
- +"#authBar .who{color:#fff;opacity:.92;font-size:12px}";document.head.appendChild(s);})();
+ +"#authBar .who{color:#fff;opacity:.92;font-size:12px}"
+ +"@media (max-width:600px){header{padding:16px 16px 12px}"
+ +"#authBar{position:static;top:auto;right:auto;margin-top:12px;width:100%;flex-wrap:wrap;justify-content:flex-start;gap:6px}"
+ +"#authBar .who{flex-basis:100%;margin-bottom:2px}"
+ +"#authBar button{padding:8px 12px;font-size:13px}"
+ +".tabs{margin-top:12px}}";document.head.appendChild(s);})();
 let _syncTimer=null;
 window.__sync=function(){ if(!AS.token)return; clearTimeout(_syncTimer); _syncTimer=setTimeout(saveAll,1200); };
 function authInit(){
@@ -1029,4 +1034,4 @@ try{ var _ip=new URLSearchParams(location.search).get('import'); if(_ip){ _pendi
 authInit();
 applyAuthView();
 </script></body></html>
-<!-- build 20260712T122901Z -->
+<!-- build 20260713T003435Z -->
