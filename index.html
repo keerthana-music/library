@@ -1,6 +1,15 @@
 <!DOCTYPE html><html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The Keerthana App</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#7a1f2b">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Keerthana">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 <style>
 :root{--maroon:#7a1f2b;--saffron:#d98324;--cream:#fbf6ec;--ink:#2a221c;--muted:#8a7d70;--line:#e7ddcc;--chip:#f3e9d6;--ok:#2e7d5b}
 *{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--cream);color:var(--ink);-webkit-text-size-adjust:100%}
@@ -1034,4 +1043,4 @@ try{ var _ip=new URLSearchParams(location.search).get('import'); if(_ip){ _pendi
 authInit();
 applyAuthView();
 </script></body></html>
-<!-- build 20260713T003435Z -->
+<!-- build 20260713T024813Z -->
