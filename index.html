@@ -265,7 +265,7 @@ function shareSong(k){
 const AUTH={
   CLIENT_ID: '338340942516-lju3m0bc9coruem8ia2qa4vi9f1l9900.apps.googleusercontent.com',                                                         /* <-- paste your OAuth Web client ID here */
   TEACHER_EMAILS: ['prabhakar.ranganathan@gmail.com','uthra78@gmail.com'],                                /* full master: view/share + curate. RP (testing) + Akka. */
-  ADMIN_EMAILS: ['seshadri.anupama@gmail.com','aravindgomatam19@gmail.com','govindpgomatam@gmail.com'],   /* curate the master (add/import), no teaching affordances. Anu + boys. Everyone else = User; RP's monash.edu is deliberately absent (his login-as-user test id). */
+  ADMIN_EMAILS: ['seshadri.anupama@gmail.com','govindpgomatam@gmail.com'],   /* curate the master (add/import), no teaching affordances. Anu + Gov. Everyone else = User; Avvi (aravindgomatam19@gmail.com) and RP's monash.edu are deliberately absent (login-as-user test ids). */
   SCOPES: 'openid email profile https://www.googleapis.com/auth/drive.file',
   LIB_FILE: 'keerthana-library.json',
   PICKER_KEY: 'AIzaSyBkNHClBkhA68Tx3xy3evfdHVThGa8iPA8', /* Google Picker API browser key (referrer-restricted) */
@@ -1042,4 +1042,3 @@ try{ var _ip=new URLSearchParams(location.search).get('import'); if(_ip){ _pendi
 authInit();
 applyAuthView();
 </script></body></html>
-<!-- build 20260713T030508Z -->
