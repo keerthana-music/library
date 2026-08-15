@@ -92,7 +92,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
  <div id="conList"></div>
 </div>
 <div id="view-archive" style="display:none">
- <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTalaA"><option value="">All talas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button></div>
+ <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTalaA"><option value="">All talas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button><button id="arcRebuild" class="barbtn ghost" style="padding:9px 12px;font-weight:600" title="Rebuild the index by rescanning your archive folder in Drive" onclick="rebuildArchive()">↻</button></div>
  <div class="note">Your own archive in Drive — notation, audio, notes you Add appear here.</div>
  <div id="arcList"></div>
 </div>
@@ -505,6 +505,18 @@ function loadArchive(cb){
   ensureArchiveRoot().then(function(rootId){ _arcRoot=rootId; return ensureIndex(rootId); })
     .then(function(idx){ _arcIdx=idx; buildArchiveFilters((idx&&idx.items)||[]); cb(idx); })
     .catch(function(e){ console.log('archive err',e); cb(null); });
+}
+/* The master has had a ↻ since it was built; the personal archive had none, so a
+   stale index.json — a notation swapped by hand in Drive, a bundle folder renamed —
+   could not be put right from inside the app at all. ensureIndex returns the cached
+   index whenever it has items, so waiting it out never worked either. */
+function rebuildArchive(){
+  if(!AS.token){ toast('Sign in first'); return; }
+  var host=document.getElementById('arcList'); if(host) host.innerHTML='<div class="empty">Rebuilding your archive index…</div>';
+  _arcIdx=null;
+  ensureArchiveRoot().then(function(rootId){ _arcRoot=rootId; return refreshIndex(rootId); })
+    .then(function(idx){ _arcIdx=idx; buildArchiveFilters((idx&&idx.items)||[]); rArchive(); toast('Archive index rebuilt ✓'); })
+    .catch(function(e){ console.log('archive rebuild err',e); if(host) host.innerHTML='<div class="empty">Rebuild failed — see console.</div>'; });
 }
 function rArchive(){
   var host=document.getElementById('arcList'); if(!host) return;
@@ -1162,6 +1174,18 @@ window.openEdit=function(fid){
   loadDict(function(){ _kdb=null; });
   var es=document.getElementById('edSearch'); if(es) es.value='';
   var er=document.getElementById('edResults'); if(er){ er.innerHTML=''; er.style.display='none'; }
+  /* Name what is actually in the bundle folder, so it is clear what Replace is about
+     to move aside. Async, and guarded — the modal can be reopened on another piece
+     before this lands. */
+  var nEl=document.getElementById('edNota');
+  if(nEl){ nEl.textContent='checking…';
+    driveListChildren(fid).then(function(files){
+      if(_editId!==fid) return;
+      var f=(files||[]).filter(function(x){ return x.name!=='bundle.json' && x.mimeType!=='application/vnd.google-apps.folder'; });
+      nEl.textContent=f.length?f.map(function(x){return x.name;}).join(', ')
+        :(it.notationUrl?'linked to a URL, no file in the bundle':'none yet');
+    }).catch(function(){ if(_editId===fid) nEl.textContent='could not read the bundle folder'; });
+  }
   document.getElementById('kEdit').style.display='flex';
 };
 function _editSave(){
@@ -1177,6 +1201,59 @@ function _editSave(){
   }).then(function(){ return addToIndex(root,id); })
     .then(function(){ _masterIdx=null;_arcIdx=null; btn.disabled=false; btn.textContent='Save'; document.getElementById('kEdit').style.display='none'; toast('Saved ✓'); var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
     .catch(function(e){ console.log('edit save err',e); btn.disabled=false; btn.textContent='Save'; toast('Save failed — see console'); });
+}
+/* ---- Replace the notation PDF in a bundle ----------------------------------
+   Doing this by hand in Drive goes wrong two different ways. Dropping in a file of
+   the same name does not overwrite — Drive keeps both, and _notationFileId takes
+   whichever the listing happens to return first. Deleting the old one and uploading
+   a replacement is worse: the new file has a new id, so the notationId cached in
+   index.json points at a dead file, and it never receives the "anyone with the link"
+   permission that createBundle grants at import, so everyone but the owner is asked
+   to request access. Only Drive's own "Manage versions" is safe, and nobody
+   remembers to use it. So the app does the whole sequence itself. */
+function replaceNotation(bundleId,rootId,file){
+  var oldNames=[];
+  return driveListChildren(bundleId).then(function(files){
+    var old=(files||[]).filter(function(f){ return f.name!=='bundle.json'
+      && f.mimeType!=='application/vnd.google-apps.folder' && f.id!==file.fileId; });
+    oldNames=old.map(function(f){ return f.name; });
+    if(!old.length) return null;
+    /* Moved aside rather than trashed, the same bargain _editRemove strikes: the
+       replaced scan may turn out to have been the better one. */
+    return ensureTrashFolder(rootId).then(function(trashId){
+      return old.reduce(function(ch,f){ return ch.then(function(){ return driveMoveInto(f.id,trashId); }); },Promise.resolve());
+    });
+  })
+  .then(function(){ return driveMoveInto(file.fileId,bundleId); })
+  .then(function(){ return driveMakePublic(file.fileId).catch(function(){}); })
+  .then(function(){ return readBundle(bundleId); })
+  .then(function(b){
+    var meta=(b&&b.meta)||{schema:'kms-bundle/1',type:'piece',id:bundleId,meta:{},items:[]};
+    meta.files=[file.fileName];
+    /* A bundle built from a shared link carries a notationUrl, and _indexNotation2
+       opens that in preference to anything in the folder — leaving it set would make
+       the replacement invisible. */
+    meta.notationUrl='';
+    meta.updated=new Date().toISOString();
+    return driveUpdateBundleJson(bundleId,meta);
+  })
+  .then(function(){ return addToIndex(rootId,bundleId); })
+  .then(function(){ return oldNames; });
+}
+function _editReplace(){
+  var root=_editRoot(); if(!root){ toast('Open the archive first'); return; }
+  var id=_editId, btn=document.getElementById('edReplace');
+  openPicker(function(p){
+    if(!p||!p.fileId) return;
+    if(!window.confirm('Replace the notation with “'+p.fileName+'”?\nWhatever it replaces is moved to “'+AUTH.TRASH_NAME+'”, not deleted.')) return;
+    btn.disabled=true; btn.textContent='Replacing…';
+    replaceNotation(id,root,p).then(function(oldNames){
+      _masterIdx=null; _arcIdx=null;
+      btn.disabled=false; btn.textContent='Replace notation…';
+      var n=document.getElementById('edNota'); if(n) n.textContent=p.fileName;
+      toast(oldNames.length?('Notation replaced ✓ — old file moved to “'+AUTH.TRASH_NAME+'”'):'Notation added ✓');
+    }).catch(function(e){ console.log('replace err',e); btn.disabled=false; btn.textContent='Replace notation…'; toast('Replace failed — see console'); });
+  });
 }
 function _editRemove(){
   if(!window.confirm('Move this piece out of the archive into “'+AUTH.TRASH_NAME+'”?\nIt is NOT deleted — you can remove it permanently from Drive later.')) return;
@@ -1199,7 +1276,9 @@ function _editRemove(){
    +"#kEdit .eres{padding:8px 10px;font-size:14px;cursor:pointer;border-bottom:1px solid #f0e8da}"
    +"#kEdit .eres:last-child{border-bottom:0}#kEdit .eres:hover{background:#f7efe0}"
    +"#kEdit .eres span{color:#8a7d70;font-size:12px;margin-left:6px}"
-   +"#kEdit .hint{font-size:11px;color:#a08b6f;margin:3px 0 2px}#kEdit .sep{height:1px;background:#eee;margin:16px 0 2px}";
+   +"#kEdit .hint{font-size:11px;color:#a08b6f;margin:3px 0 2px}#kEdit .sep{height:1px;background:#eee;margin:16px 0 2px}"
+   +"#kEdit .nota{font-size:12.5px;color:#6b5330;background:#f3e9d6;border-radius:8px;padding:8px 10px;word-break:break-all}"
+   +"#kEdit .alt{background:#f7efe0;color:#6b5330;border:1px solid #e7ddcc!important}";
   document.head.appendChild(css);
   var m=document.createElement('div'); m.id='kEdit';
   m.innerHTML='<div class="box"><h3>Edit piece</h3>'
@@ -1210,11 +1289,15 @@ function _editRemove(){
    +'<label>Tala</label><input id="edTala">'
    +'<label>Composer</label><input id="edComposer">'
    +'<label>Type</label><input id="edType">'
+   +'<div class="sep"></div><label>Notation</label><div class="nota" id="edNota">—</div>'
+   +'<div class="row"><button class="alt" id="edReplace">Replace notation…</button></div>'
+   +'<div class="hint">Pick the new PDF here rather than swapping it in Drive — the link the families already have keeps working, and the old file is kept in “'+esc(AUTH.TRASH_NAME)+'”.</div>'
    +'<div class="row"><button class="no" id="edCancel">Cancel</button><button class="go" id="edSave">Save</button></div>'
    +'<div class="row"><button class="rm" id="edRemove">Remove from archive</button></div></div>';
   document.body.appendChild(m);
   document.getElementById('edCancel').onclick=function(){ document.getElementById('kEdit').style.display='none'; };
   document.getElementById('edSave').onclick=_editSave;
+  document.getElementById('edReplace').onclick=_editReplace;
   document.getElementById('edRemove').onclick=_editRemove;
   var _es=document.getElementById('edSearch'), _er=document.getElementById('edResults');
   _es.addEventListener('input',function(){

@@ -191,4 +191,50 @@ ev2(`_impRows([{kind:'new', file:{id:'f1',name:'a.pdf'}, prop:matchFile('a.pdf')
 assert(d2.querySelectorAll('#imDL datalist').length===3 && d2.querySelectorAll('#kImp2 .irow').length===2,
        'a second row reuses the same lists');
 
+// 8. Replacing a notation. Swapping the PDF by hand in Drive silently breaks the
+//    bundle — same-named uploads leave two files and _notationFileId picks whichever
+//    the listing returns first; delete-and-upload orphans the cached notationId and
+//    loses the public permission. replaceNotation has to do the whole sequence.
+ev2(`_log=[];
+driveListChildren=function(id){ _log.push('list:'+id);
+  return Promise.resolve(id==='B' ? [
+    {id:'bj', name:'bundle.json', mimeType:'application/json'},
+    {id:'OLD', name:'old.pdf', mimeType:'application/pdf'},
+    {id:'sub', name:'audio', mimeType:'application/vnd.google-apps.folder'}
+  ] : []); };
+driveMoveInto=function(f,t){ _log.push('move:'+f+'->'+t); return Promise.resolve({id:f}); };
+driveMakePublic=function(f){ _log.push('public:'+f); return Promise.resolve({}); };
+ensureTrashFolder=function(){ _log.push('trash'); return Promise.resolve('TRASH'); };
+readBundle=function(id){ return Promise.resolve({folderId:id, meta:{schema:'kms-bundle/1',type:'piece',title:'t',
+  notationUrl:'https://example.test/old', files:['old.pdf'], meta:{raga:'tODi'}}, files:[]}); };
+driveUpdateBundleJson=function(id,obj){ _log.push('bundlejson:'+id); _written=obj; return Promise.resolve('bj'); };
+addToIndex=function(root,id){ _log.push('index:'+root+'/'+id); return Promise.resolve({}); };`);
+
+const replaced = await w2.eval("replaceNotation('B','ROOT',{fileId:'NEW',fileName:'new.pdf'})");
+const log = ev2('_log'), written = ev2('_written');
+
+assert(log.indexOf('move:OLD->TRASH')>=0, 'replaceNotation: the file being replaced goes to the Trash folder');
+assert(log.indexOf('move:bj->TRASH')<0 && log.indexOf('move:sub->TRASH')<0,
+       'replaceNotation: bundle.json and child bundles are left alone');
+assert(log.indexOf('move:NEW->B')>=0, 'replaceNotation: the new file is moved into the bundle');
+assert(log.indexOf('move:OLD->TRASH') < log.indexOf('move:NEW->B'),
+       'replaceNotation: the old file leaves before the new one arrives, so the folder never holds two');
+assert(log.indexOf('public:NEW')>=0, 'replaceNotation: the new file gets the anyone-with-the-link permission');
+assert(written && written.files && written.files[0]==='new.pdf', 'replaceNotation: bundle.json records the new filename');
+assert(written && written.notationUrl==='',
+       'replaceNotation: a stale notationUrl is cleared, or the replacement would never be what opens');
+assert(log.indexOf('index:ROOT/B')>=0, 'replaceNotation: the index is updated so the card links to the new file');
+assert(Array.isArray(replaced) && replaced[0]==='old.pdf', 'replaceNotation: reports what it moved aside');
+
+// Re-picking the file that is already there must not throw it away.
+ev2('_log=[];');
+await w2.eval("replaceNotation('B','ROOT',{fileId:'OLD',fileName:'old.pdf'})");
+assert(ev2('_log').indexOf('move:OLD->TRASH')<0, 'replaceNotation: re-picking the current file does not trash it');
+
+// 9. The two new controls exist and are wired.
+assert(ev2('typeof rebuildArchive')==='function', 'rebuildArchive defined');
+assert(d2.getElementById('arcRebuild')!==null, 'archive has a rebuild button');
+assert(d2.getElementById('edReplace')!==null, 'edit modal has a Replace notation button');
+assert(d2.getElementById('edNota')!==null, 'edit modal names the current notation');
+
 console.log(process.exitCode ? 'SMOKE TEST FAILED' : 'ALL SMOKE TESTS PASSED');
