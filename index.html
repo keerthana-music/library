@@ -803,11 +803,93 @@ function normKey(name){ var s=String(name||'').toLowerCase(); s=s.replace(/\([^)
 function loadDict(cb){ if(_dict) return cb(_dict);
   fetch('krithi-dictionary.json',{cache:'force-cache'}).then(function(r){return r.json();}).then(function(d){ _dict=d; _dictKey={}; d.forEach(function(e){ if(e.key&&!_dictKey[e.key]) _dictKey[e.key]=e; }); cb(d); }).catch(function(e){ console.log('dict load err',e); _dict=[]; _dictKey={}; cb([]); }); }
 function catKeyMap(){ _catKey={}; CAT.forEach(function(r){ var k=normKey(r.Piece); if(k&&!_catKey[k]) _catKey[k]=r; }); return _catKey; }
+/* ---- Fuzzy matching -------------------------------------------------------
+   SCHEMA.md promises a fuzzy matcher; the original matchFile only did an exact
+   hash lookup on normKey, so any filename that carried extra words (a " - Raga"
+   suffix, a "(copy)") missed every entry and the whole batch came back
+   unidentified. This mirrors digitize/match.py: phonetic key + WRatio-style
+   scoring, master catalogue bonus, and the raga in the filename as a tiebreak. */
+var FZ_HIGH=86, FZ_LOW=68, FZ_MARGIN=6, FZ_BONUS=4, FZ_RAGA=8, FZ_SAME=92;
+function _lcsLen(a,b){ var n=b.length,prev=new Uint16Array(n+1),cur=new Uint16Array(n+1);
+  for(var i=1;i<=a.length;i++){ for(var j=1;j<=n;j++){ cur[j]= a.charCodeAt(i-1)===b.charCodeAt(j-1) ? prev[j-1]+1 : (prev[j]>cur[j-1]?prev[j]:cur[j-1]); } prev.set(cur); cur.fill(0); }
+  return prev[n]; }
+function _ratio(a,b){ if(!a.length||!b.length) return 0; return 200*_lcsLen(a,b)/(a.length+b.length); }
+function _partial(a,b){ var s=a.length<=b.length?a:b, l=a.length<=b.length?b:a; if(!s.length) return 0;
+  if(l.indexOf(s)>=0) return 100; var best=0;
+  for(var i=0;i+s.length<=l.length;i++){ var r=_ratio(s,l.substr(i,s.length)); if(r>best) best=r; if(best>=100) break; }
+  return best; }
+/* Partial only earns its keep when the lengths genuinely differ, and it is scaled
+   down — otherwise a short dictionary key scores 100 against any longer title that
+   contains it ("gaNanaatham" beating "shree gaNanaatam bhajarE"). */
+function fzScore(a,b){ if(!a.length||!b.length) return 0;
+  var base=_ratio(a,b), lr=Math.max(a.length,b.length)/Math.max(1,Math.min(a.length,b.length));
+  if(lr<1.5) return base;
+  return Math.max(base, _partial(a,b)*(lr<8?0.9:0.6)); }
+function _bigrams(k){ var o=[]; for(var i=0;i+1<k.length;i++) o.push(k.substr(i,2)); return o; }
+function fzIndex(entries,keyOf){ var idx={}, sz=new Uint16Array(entries.length);
+  entries.forEach(function(e,i){ var seen={},n=0; _bigrams(keyOf(e)).forEach(function(g){ if(seen[g])return; seen[g]=1; n++; (idx[g]=idx[g]||[]).push(i); }); sz[i]=n||1; });
+  return {idx:idx,sz:sz,n:entries.length}; }
+/* Rank the shortlist by Dice overlap, not raw shared-bigram count: raw counts favour
+   long names and starve short ones, which then never reach scoring at all. */
+function fzShort(key,ix,cap){ if(!ix||!ix.n) return []; var cnt=new Uint16Array(ix.n), seen={}, q=0;
+  _bigrams(key).forEach(function(g){ if(seen[g])return; seen[g]=1; q++; var l=ix.idx[g]; if(l) for(var i=0;i<l.length;i++) cnt[l[i]]++; });
+  if(!q) return [];
+  var out=[]; for(var i=0;i<ix.n;i++) if(cnt[i]) out.push([2*cnt[i]/(q+ix.sz[i]),i]);
+  out.sort(function(a,b){return b[0]-a[0];});
+  return out.slice(0,cap||400).map(function(x){return x[1];}); }
+var _fzDict=null,_fzCat=null;
+function fzBuild(){ if(!_fzCat) _fzCat=fzIndex(CAT,function(r){return normKey(r.Piece);});
+  if(!_fzDict&&_dict) _fzDict=fzIndex(_dict,function(e){return e.key||normKey(e.name);}); }
+function _fromCat(r,s){ return {title:r.Piece,raga:r.Raga||'',tala:r.Tala||'',composer:r.Composer||'',pieceType:r.Type||'',aro:r.Aro||'',av:r.Av||'',parent:r.Parent||'',src:'catalog',key:normKey(r.Piece),s:s}; }
+function _fromDict(e,s){ return {title:e.name,raga:e.raga||'',tala:'',composer:e.composer||'',pieceType:'',aro:'',av:'',parent:'',src:'dictionary',key:e.key||normKey(e.name),s:s}; }
+function fzRank(q,hint){
+  fzBuild(); var key=normKey(q); if(!key) return [];
+  var c=[];
+  fzShort(key,_fzCat).forEach(function(i){ var r=CAT[i]; c.push(_fromCat(r,fzScore(key,normKey(r.Piece)))); });
+  if(_dict) fzShort(key,_fzDict).forEach(function(i){ var e=_dict[i]; c.push(_fromDict(e,fzScore(key,e.key||normKey(e.name)))); });
+  c.forEach(function(x){ var rb = hint && fzScore(hint,normKey(x.raga))>=85 ? FZ_RAGA : 0;
+    x.adj=Math.min(100, x.s + (x.src==='catalog'?FZ_BONUS:0) + rb); });
+  c.sort(function(a,b){ return (b.adj-a.adj)||(b.s-a.s); });
+  var out=[],seen={};
+  for(var i=0;i<c.length;i++){ if(seen[c[i].key]) continue; seen[c[i].key]=1; out.push(c[i]); if(out.length>=6) break; }
+  return out;
+}
 function matchFile(name){
-  var base=String(name).replace(/\.[^.]+$/,''); var k=normKey(base);
-  var c=_catKey[k]; if(c) return {title:c.Piece,raga:c.Raga||'',tala:c.Tala||'',composer:c.Composer||'',pieceType:c.Type||'',aro:c.Aro||'',av:c.Av||'',parent:c.Parent||'',match:'catalog'};
-  var dd=_dictKey&&_dictKey[k]; if(dd) return {title:dd.name,raga:dd.raga||'',tala:'',composer:dd.composer||'',pieceType:'',aro:'',av:'',parent:'',match:'dictionary'};
-  return {title:base,raga:'',tala:'',composer:'',pieceType:'',aro:'',av:'',parent:'',match:'none'};
+  var base=String(name).replace(/\.[^.]+$/,'');
+  /* Strip our own bookkeeping suffixes, then treat "Title - Raga" as title + hint. */
+  var clean=base.replace(/\s*\((copy|lyrics)\)\s*/gi,' ').replace(/\s+/g,' ').trim();
+  var parts=clean.split(' - ');
+  var title=parts[0], ragaTxt=parts.length>1?parts[parts.length-1].trim():'';
+  var hint=ragaTxt?normKey(ragaTxt):'';
+  /* Nothing in either dictionary (all the Thiruppugazh, for one) still leaves us the
+     filename, which by convention is "Title - Raga" — better than dumping the raw
+     filename into the title box and losing the raga entirely. */
+  var fallback={title:title||base,raga:ragaTxt,tala:'',composer:'',pieceType:'',aro:'',av:'',parent:''};
+  /* Exact hit on the full name still wins outright — cheapest and safest. */
+  var k=normKey(base);
+  var c=_catKey[k]; if(c) return _mkProp(_fromCat(c,100),'catalog',[]);
+  var dd=_dictKey&&_dictKey[k]; if(dd) return _mkProp(_fromDict(dd,100),'dictionary',[]);
+  var ranked=fzRank(title,hint);
+  if(!ranked.length||ranked[0].s<FZ_HIGH){
+    var alt=fzRank(clean,hint);
+    if(alt.length&&(!ranked.length||alt[0].adj>ranked[0].adj)) ranked=alt;
+  }
+  if(!ranked.length){ fallback.match='none'; fallback.score=0; fallback.alts=[]; return fallback; }
+  var top=ranked[0];
+  /* Spelling variants of the SAME piece (master vs karnatik) must not count as rivals,
+     or an exact hit present in both sources gets demoted for lack of margin. */
+  var rivals=ranked.slice(1).filter(function(x){ return fzScore(x.key,top.key)<FZ_SAME; });
+  var margin=rivals.length?top.adj-rivals[0].adj:100;
+  var bucket=(top.s>=FZ_HIGH&&margin>=FZ_MARGIN)?(top.src==='catalog'?'catalog':'dictionary')
+            :(top.s>=FZ_LOW?'review':'none');
+  if(bucket==='none'){ fallback.match='none'; fallback.score=Math.round(top.s); fallback.alts=ranked.slice(0,4); return fallback; }
+  var prop=_mkProp(top,bucket,ranked.slice(1,4));
+  if(!prop.raga&&ragaTxt) prop.raga=ragaTxt;   /* dictionary had no raga; the filename did */
+  return prop;
+}
+function _mkProp(x,bucket,alts){
+  return {title:x.title,raga:x.raga||'',tala:x.tala||'',composer:x.composer||'',pieceType:x.pieceType||'',
+          aro:x.aro||'',av:x.av||'',parent:x.parent||'',match:bucket,score:Math.round(x.s||0),alts:alts||[]};
 }
 function openMultiPicker(onPick){
   if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
@@ -837,11 +919,20 @@ window.openImport=function(){
   if(!AS.token){ toast('Sign in first'); return; }
   loadDict(function(){ catKeyMap();
     if(onMaster()){
-      /* Admin/Teacher: elevate, resolve the master, pick a SOURCE folder, walk it. */
+      /* Admin/Teacher: elevate, resolve the master, pick a SOURCE folder, walk it.
+         walkImportFolder() existed but was never called — openImport routed admins to the
+         same file-by-file picker as everyone else, which does not scale to a few hundred
+         PDFs. Pick the folder once and let the walk enumerate it. */
       ensureDriveScope(function(ok){ if(!ok){ toast('Drive permission needed to import to the master'); return; }
         resolveTargetRoot(function(rootId){ if(!rootId){ toast('No master folder'); return; } _impRoot=rootId;
-          toast('Select the PDF files to import into the master — open the folder, then ⌘/Ctrl-A to grab all');
-          openMultiPicker(function(files){ if(!files||!files.length) return; _impRows(files.map(function(f){ return {kind:'new', file:f, prop:matchFile(f.name)}; }),0); });
+          openFolderPicker('Select the SOURCE folder to import from — everything inside it is scanned',function(f){
+            if(!f||!f.id) return;
+            toast('Scanning "'+(f.name||'folder')+'"…');
+            walkImportFolder(f.id,function(rows,skipped){
+              if(!rows||!rows.length){ toast('Nothing importable found in that folder'); return; }
+              _impRows(rows,skipped);
+            });
+          });
         });
       });
     } else {
@@ -882,6 +973,9 @@ function walkImportFolder(folderId,cb){
    +"#kImp2 .badge2{font-size:10px;padding:1px 7px;border-radius:999px;margin-left:6px}"
    +"#kImp2 .mok{background:#e6efe9;color:#2e7d5b}#kImp2 .mdi{background:#eddfce;color:#7a1f2b}#kImp2 .mno{background:#f6e2e2;color:#b23}"
    +"#kImp2 .flds{display:grid;grid-template-columns:2fr 1fr 1.4fr;gap:6px}"
+   +"#kImp2 .alts{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}"
+   +"#kImp2 .altc{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e7ddcc;background:#faf6ef;color:#6b5330;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+   +"#kImp2 .altc:hover{background:#f0e6d4}"
    +"#kImp2 input{border:1px solid #e7ddcc;border-radius:7px;padding:6px 8px;font-size:12.5px;width:100%}"
    +"#kImp2 .ft{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:8px}#kImp2 .ft button{flex:1;border:0;border-radius:10px;padding:12px;font-weight:600;font-size:14px;cursor:pointer}"
    +"#kImp2 .go{background:#7a1f2b;color:#fff}#kImp2 .no{background:#f3e9d6;color:#6b5330}";
@@ -890,21 +984,35 @@ function walkImportFolder(folderId,cb){
   m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="go" id="imGo">Import</button></div></div>';
   document.body.appendChild(m);
   var rows=[], _skipped=0;
-  var badge=function(mt){ return mt==='catalog'?'<span class="badge2 mok">matched</span>':mt==='dictionary'?'<span class="badge2 mdi">from karnatik</span>':mt==='bundle'?'<span class="badge2 mok">existing bundle</span>':'<span class="badge2 mno">unidentified</span>'; };
+  var badge=function(mt,sc){ var s=(sc||sc===0)?' <span style="opacity:.6;font-weight:400">'+sc+'</span>':'';
+    return mt==='catalog'?'<span class="badge2 mok">matched'+s+'</span>'
+         :mt==='dictionary'?'<span class="badge2 mdi">from karnatik'+s+'</span>'
+         :mt==='review'?'<span class="badge2 mdi" style="background:#fdf0d5;color:#8a5a00">likely — check'+s+'</span>'
+         :mt==='bundle'?'<span class="badge2 mok">existing bundle</span>'
+         :'<span class="badge2 mno">unidentified</span>'; };
   function render(){
     var news=rows.filter(function(r){return r.kind!=='existing';}), exi=rows.filter(function(r){return r.kind==='existing';});
-    var matched=news.filter(function(r){return r.prop.match!=='none';}).length;
-    document.getElementById('imHm').textContent=rows.length+' item'+(rows.length===1?'':'s')+' · '+news.length+' new ('+matched+' matched) · '+exi.length+' existing'+(_skipped?(' · '+_skipped+' skipped'):'');
+    var matched=news.filter(function(r){return r.prop.match!=='none'&&r.prop.match!=='review';}).length;
+    var likely=news.filter(function(r){return r.prop.match==='review';}).length;
+    document.getElementById('imHm').textContent=rows.length+' item'+(rows.length===1?'':'s')+' · '+news.length+' new ('+matched+' matched'+(likely?', '+likely+' likely':'')+') · '+exi.length+' existing'+(_skipped?(' · '+_skipped+' skipped'):'');
     document.getElementById('imList').innerHTML=rows.map(function(r,i){ var p=r.prop;
       if(r.kind==='existing'){
         return '<div class="irow"><div class="fn">'+esc(r.name)+badge('bundle')+'</div>'
           +'<div style="font-size:12.5px;color:#6b5330">'+esc(p.title)+(p.raga?' · '+esc(p.raga):'')+(p.composer?' · '+esc(p.composer):'')+'</div></div>';
       }
-      return '<div class="irow"><div class="fn">'+esc(r.file.name)+badge(p.match)+'</div>'
+      var alts=(p.alts&&p.alts.length)?('<div class="alts">'+p.alts.map(function(a,j){
+        return '<button class="altc" data-i="'+i+'" data-j="'+j+'" title="'+esc(a.raga||'')+(a.composer?' · '+esc(a.composer):'')+'">'+esc(a.title)+'</button>'; }).join('')+'</div>'):'';
+      return '<div class="irow"><div class="fn">'+esc(r.file.name)+badge(p.match,p.score)+'</div>'
         +'<div class="flds"><input data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
         +'<input data-i="'+i+'" data-f="raga" value="'+esc(p.raga)+'" placeholder="raga">'
-        +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div></div>'; }).join('');
+        +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div>'+alts+'</div>'; }).join('');
     document.getElementById('imList').querySelectorAll('input').forEach(function(inp){ inp.addEventListener('input',function(){ rows[+inp.dataset.i].prop[inp.dataset.f]=inp.value; }); });
+    /* One click swaps in an alternate candidate — faster than retyping a transliteration. */
+    document.getElementById('imList').querySelectorAll('.altc').forEach(function(b){ b.addEventListener('click',function(){
+      var r=rows[+b.dataset.i], a=r.prop.alts[+b.dataset.j]; if(!a) return;
+      r.prop.title=a.title; r.prop.raga=a.raga||''; r.prop.tala=a.tala||r.prop.tala||''; r.prop.composer=a.composer||'';
+      r.prop.pieceType=a.pieceType||''; r.prop.aro=a.aro||''; r.prop.av=a.av||''; r.prop.parent=a.parent||'';
+      r.prop.match=(a.src==='catalog')?'catalog':'dictionary'; r.prop.score=Math.round(a.s||0); render(); }); });
     document.getElementById('imGo').textContent='Import '+rows.length+' item'+(rows.length===1?'':'s');
   }
   document.getElementById('imCancel').onclick=function(){ m.style.display='none'; };
