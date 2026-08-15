@@ -884,7 +884,13 @@ function matchFile(name){
             :(top.s>=FZ_LOW?'review':'none');
   if(bucket==='none'){ fallback.match='none'; fallback.score=Math.round(top.s); fallback.alts=ranked.slice(0,4); return fallback; }
   var prop=_mkProp(top,bucket,ranked.slice(1,4));
-  if(!prop.raga&&ragaTxt) prop.raga=ragaTxt;   /* dictionary had no raga; the filename did */
+  /* Akka's notation is the authority for what the school actually sings, so a raga carried
+     by the filename overrides the dictionary's. Where they disagree we keep the dictionary
+     value on the row so the disagreement is visible rather than silently overwritten. */
+  if(ragaTxt){
+    if(prop.raga && fzScore(normKey(prop.raga),hint)<85) prop.ragaAlt=prop.raga;
+    prop.raga=ragaTxt; prop.ragaFile=ragaTxt;   /* remembered so picking an alternate keeps it */
+  }
   return prop;
 }
 function _mkProp(x,bucket,alts){
@@ -973,6 +979,7 @@ function walkImportFolder(folderId,cb){
    +"#kImp2 .badge2{font-size:10px;padding:1px 7px;border-radius:999px;margin-left:6px}"
    +"#kImp2 .mok{background:#e6efe9;color:#2e7d5b}#kImp2 .mdi{background:#eddfce;color:#7a1f2b}#kImp2 .mno{background:#f6e2e2;color:#b23}"
    +"#kImp2 .flds{display:grid;grid-template-columns:2fr 1fr 1.4fr;gap:6px}"
+   +"#kImp2 .ragaw{font-size:11px;color:#8a5a00;margin-top:5px}"
    +"#kImp2 .alts{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}"
    +"#kImp2 .altc{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e7ddcc;background:#faf6ef;color:#6b5330;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
    +"#kImp2 .altc:hover{background:#f0e6d4}"
@@ -1000,17 +1007,21 @@ function walkImportFolder(folderId,cb){
         return '<div class="irow"><div class="fn">'+esc(r.name)+badge('bundle')+'</div>'
           +'<div style="font-size:12.5px;color:#6b5330">'+esc(p.title)+(p.raga?' · '+esc(p.raga):'')+(p.composer?' · '+esc(p.composer):'')+'</div></div>';
       }
+      var rw=p.ragaAlt?('<div class="ragaw">raga from filename kept · karnatik lists <b>'+esc(p.ragaAlt)+'</b></div>'):'';
       var alts=(p.alts&&p.alts.length)?('<div class="alts">'+p.alts.map(function(a,j){
         return '<button class="altc" data-i="'+i+'" data-j="'+j+'" title="'+esc(a.raga||'')+(a.composer?' · '+esc(a.composer):'')+'">'+esc(a.title)+'</button>'; }).join('')+'</div>'):'';
       return '<div class="irow"><div class="fn">'+esc(r.file.name)+badge(p.match,p.score)+'</div>'
         +'<div class="flds"><input data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
         +'<input data-i="'+i+'" data-f="raga" value="'+esc(p.raga)+'" placeholder="raga">'
-        +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div>'+alts+'</div>'; }).join('');
+        +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div>'+rw+alts+'</div>'; }).join('');
     document.getElementById('imList').querySelectorAll('input').forEach(function(inp){ inp.addEventListener('input',function(){ rows[+inp.dataset.i].prop[inp.dataset.f]=inp.value; }); });
     /* One click swaps in an alternate candidate — faster than retyping a transliteration. */
     document.getElementById('imList').querySelectorAll('.altc').forEach(function(b){ b.addEventListener('click',function(){
       var r=rows[+b.dataset.i], a=r.prop.alts[+b.dataset.j]; if(!a) return;
-      r.prop.title=a.title; r.prop.raga=a.raga||''; r.prop.tala=a.tala||r.prop.tala||''; r.prop.composer=a.composer||'';
+      r.prop.title=a.title; r.prop.tala=a.tala||r.prop.tala||''; r.prop.composer=a.composer||'';
+      /* filename raga still wins over the alternate's */
+      r.prop.raga=r.prop.ragaFile||a.raga||'';
+      r.prop.ragaAlt=(r.prop.ragaFile&&a.raga&&fzScore(normKey(a.raga),normKey(r.prop.ragaFile))<85)?a.raga:'';
       r.prop.pieceType=a.pieceType||''; r.prop.aro=a.aro||''; r.prop.av=a.av||''; r.prop.parent=a.parent||'';
       r.prop.match=(a.src==='catalog')?'catalog':'dictionary'; r.prop.score=Math.round(a.s||0); render(); }); });
     document.getElementById('imGo').textContent='Import '+rows.length+' item'+(rows.length===1?'':'s');
