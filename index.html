@@ -640,10 +640,18 @@ function loadPicker(cb){
 function openPicker(onPick){
   if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
   loadPicker(function(){
-    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setSelectFolderEnabled(false);
+    /* Same navigation fix as openMultiPicker: include folders, and offer the shared views so a
+       file sitting on someone else's Drive is reachable. */
+    var mine=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true).setSelectFolderEnabled(false).setLabel('My Drive');
+    var shared=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true).setSelectFolderEnabled(false).setOwnedByMe(false).setLabel('Shared with me');
+    var drives=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true).setSelectFolderEnabled(false).setEnableDrives(true).setLabel('Shared drives');
     var picker=new google.picker.PickerBuilder()
+      .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
       .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID)
-      .addView(view).setTitle('Choose a file to add')
+      .addView(mine).addView(shared).addView(drives).setTitle('Choose a file to add')
       .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){ var d=data.docs[0]; onPick({fileId:d.id,fileName:d.name||''}); } })
       .build();
     picker.setVisible(true);
@@ -804,10 +812,23 @@ function matchFile(name){
 function openMultiPicker(onPick){
   if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
   loadPicker(function(){
-    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setSelectFolderEnabled(false).setMimeTypes('application/pdf');
+    /* Folders must be BOTH included and listed in the mime filter, or the view flattens to a
+       non-navigable file list. The archive usually lives on someone else's Drive (Akka's),
+       shared with the signed-in user, so we also offer a "Shared with me" view. */
+    var MIMES='application/pdf,application/vnd.google-apps.folder';
+    var mine=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true).setSelectFolderEnabled(false).setMimeTypes(MIMES).setLabel('My Drive');
+    var shared=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true).setSelectFolderEnabled(false).setMimeTypes(MIMES)
+      .setOwnedByMe(false).setLabel('Shared with me');
+    var drives=new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true).setSelectFolderEnabled(false).setMimeTypes(MIMES)
+      .setEnableDrives(true).setLabel('Shared drives');
     var picker=new google.picker.PickerBuilder().enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+      .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
       .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID)
-      .addView(view).setTitle('Select the PDF files to import (not the folder)')
+      .addView(mine).addView(shared).addView(drives)
+      .setTitle('Open the folder, then select the PDF files to import (not the folder)')
       .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){ onPick((data.docs||[]).map(function(d){return {id:d.id,name:d.name||''};})); } }).build();
     picker.setVisible(true);
   });
