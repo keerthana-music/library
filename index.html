@@ -114,6 +114,11 @@ const saveImp=()=>{localStorage.setItem('kms_imp',JSON.stringify(imported));if(w
 const _b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const _unb64=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(s))));};
 function uniqFrom(k){return [...new Set(CAT.map(r=>r[k]).filter(Boolean))].sort((a,b)=>a.toLowerCase().localeCompare(b.toLowerCase()));}
+/* Talas the school sings that the master catalogue's 85 pieces happen not to cover,
+   so META.talas never learned them. They exist in the karnatik vocabulary, but that
+   is a long alphabetical tail — these belong in the first group with the rest of
+   ours. Spelled to match the karnatik forms so the two dedupe to one entry. */
+const HOUSE_TALAS=['Eka','tishra Eka','khaNDa Eka'];
 function buildFilters(){
   [['fRaga','Raga','All ragas'],['fTala','Tala','All talas'],['fType','Type','All types'],['fComposer','Composer','All composers']].forEach(([id,key,all])=>{
     const s=document.getElementById(id); const cur=s.value;
@@ -756,7 +761,9 @@ function createBundle(rootId,spec){
    +'<label>Tala</label><input id="kaTala" list="kaTalaL" placeholder="tala">'
    +'<label>Composer</label><input id="kaComp" list="kaCompL" placeholder="composer"></div>'
    +'<div id="kaChild" style="display:none"><label>Attach to which piece?</label><input id="kaParent" list="kaParentL" placeholder="type a piece name"></div>'
-   +dl('kaRagaL',(typeof META!=='undefined'&&META.ragas)||[])+dl('kaTalaL',(typeof META!=='undefined'&&META.talas)||[])+dl('kaCompL',(typeof META!=='undefined'&&META.composers)||[])
+   +dl('kaRagaL',(typeof META!=='undefined'&&META.ragas)||[])
+   +dl('kaTalaL',(((typeof META!=='undefined'&&META.talas)||[]).concat(HOUSE_TALAS)).sort(function(a,b){return a.toLowerCase().localeCompare(b.toLowerCase());}))
+   +dl('kaCompL',(typeof META!=='undefined'&&META.composers)||[])
    +'<datalist id="kaParentL">'+CAT.map(function(r){return '<option value="'+esc(r.Piece)+'">';}).join('')+'</datalist>'
    +'<div class="row"><button class="no" id="kaCancel">Cancel</button><button class="go" id="kaGo">Create bundle</button></div></div>';
   document.body.appendChild(m);
@@ -827,7 +834,8 @@ function vocab(){
   var dRaga=[],dComp=[],dTala=[];
   (_dict||[]).forEach(function(e){ if(e.raga) dRaga.push(e.raga); if(e.composer) dComp.push(e.composer); if(e.tala) dTala.push(e.tala); });
   var M=(typeof META!=='undefined'&&META)||{};
-  _vocab={ ragas:mk(M.ragas,dRaga), composers:mk(M.composers,dComp), talas:mk(M.talas,dTala) };
+  _vocab={ ragas:mk(M.ragas,dRaga), composers:mk(M.composers,dComp),
+           talas:mk((M.talas||[]).concat(HOUSE_TALAS),dTala) };
   return _vocab;
 }
 /* ---- Fuzzy matching -------------------------------------------------------

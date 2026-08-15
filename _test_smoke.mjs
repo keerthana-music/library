@@ -167,6 +167,14 @@ assert(V.composers.filter(c=>c.toLowerCase()==='tyaagaraaja').length===1,
        'vocab: a composer in both sources appears once');
 assert(V.talas.indexOf('aadi')>=0 && V.talas.indexOf('tishra Eka')>=0,
        'vocab: talas merge the catalogue and karnatik sets');
+// The Eka talas the school sings are not in the master catalogue's 85 pieces, so they
+// must be seeded by hand — and must land in the first group, not karnatik's tail.
+const nHouse = 7 + 3;   // META.talas + HOUSE_TALAS
+['Eka','tishra Eka','khaNDa Eka'].forEach(t =>
+  assert(V.talas.indexOf(t)>=0 && V.talas.indexOf(t)<nHouse,
+         'vocab: "'+t+'" sits with the school\'s talas (at '+V.talas.indexOf(t)+')'));
+assert(V.talas.filter(t=>t.toLowerCase()==='tishra eka').length===1,
+       'vocab: a seeded tala that karnatik also lists appears once');
 
 // 7. The review rows render three pick-lists, shared across the whole batch.
 ev2(`_impRows([{kind:'new', file:{id:'f1',name:'Pahi Durge - Shankarabharanam.pdf'}, prop:matchFile('Pahi Durge - Shankarabharanam.pdf')}],0);`);
