@@ -1,1 +1,5 @@
 .DS_Store
+# _test_smoke.mjs needs jsdom locally; never deploy it
+node_modules/
+package-lock.json
+package.json

@@ -366,8 +366,11 @@ function applyAuthView(){
   if(landing) landing.style.display=signedIn?'none':'';
   if(tabs) tabs.style.display=signedIn?'':'none';
   if(!signedIn){ ['view-browse','view-archive','view-concert','view-resources'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; }); return; }
-  /* Admin edits the master archive and has no concert planner; hide the Concert tab for master, show it for users. */
-  var conBtn=document.querySelector('.tabs button[data-tab="concert"]'); if(conBtn) conBtn.style.display=(AS.role==='admin')?'none':'';
+  /* The concert planner is built from the signed-in user's PERSONAL archive, which master mode
+     never loads — so it is meaningless for Teacher as well as Admin, not just Admin. Keyed off
+     onMaster() (teacher||admin); the old AS.role==='admin' check left Teachers with a Concert
+     tab that could only ever render empty. */
+  var conBtn=document.querySelector('.tabs button[data-tab="concert"]'); if(conBtn) conBtn.style.display=onMaster()?'none':'';
   var b=document.querySelector('.tabs button[data-tab="archive"]'); if(b) b.click();
 }
 function driveHeaders(){ return {Authorization:'Bearer '+AS.token}; }
