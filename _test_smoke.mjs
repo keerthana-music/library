@@ -130,4 +130,57 @@ assert(r.title==='Thullumatha Velkai Kanaiyale' && r.raga==='Hamsanandi',
 r = mf('raaraa raghuveera.pdf');
 assert(r.match==='dictionary' && r.title==='raaraa raghuveera', 'matchFile: exact legacy name still matches');
 
+// 5. Tala now travels with a dictionary match — karnatik_enrich.py added it to the
+//    ~78% of dictionary entries whose karnatik page states a taaLam.
+ev2(`_dict=[
+  {name:'paahi durgE (note)', raga:'shankaraabharaNam', composer:'Muttuswaamee Dikshitar', tala:'roopaka'},
+  {name:'no tala here', raga:'tODi', composer:'Tyaagaraaja'}
+];
+_dict.forEach(function(e){ e.key=normKey(e.name); });
+_dictKey={}; _dict.forEach(function(e){ _dictKey[e.key]=e; });
+_fzDict=null; _fzCat=null; _vocab=null;`);
+
+r = mf('Pahi Durge - Shankarabharanam.pdf');
+assert(r.tala==='roopaka', 'matchFile: karnatik tala reaches the row');
+
+r = mf('no tala here.pdf');
+assert(r.tala==='', 'matchFile: an entry without a tala leaves the box empty rather than guessing');
+
+// A catalogue match should keep the catalogue's own tala.
+r = mf('kanakana ruchirA - varALi.pdf');
+assert(r.match==='catalog' && r.tala==='aadi', 'matchFile: catalogue match keeps the catalogue tala');
+
+// 6. The pick-lists: master catalogue first, then karnatik, deduped case-insensitively.
+ev2(`_dict=[
+  {name:'x', raga:'someNewRaga', composer:'Some New Composer', tala:'tishra Eka'},
+  {name:'y', raga:'SOMENEWRAGA',  composer:'tyaagaraaja',      tala:'aadi'},
+  {name:'z', raga:'?',            composer:'',                 tala:''}
+];
+_dict.forEach(function(e){ e.key=normKey(e.name); });
+_vocab=null;`);
+const V = ev2('vocab()');
+assert(V.ragas[0]==='AbhOgi', 'vocab: master catalogue ragas come first (got '+V.ragas[0]+')');
+assert(V.ragas.indexOf('someNewRaga')>=0 && V.ragas.indexOf('SOMENEWRAGA')<0,
+       'vocab: karnatik ragas follow, case-variant duplicates dropped');
+assert(V.ragas.indexOf('?')<0, 'vocab: junk entries dropped');
+assert(V.composers.filter(c=>c.toLowerCase()==='tyaagaraaja').length===1,
+       'vocab: a composer in both sources appears once');
+assert(V.talas.indexOf('aadi')>=0 && V.talas.indexOf('tishra Eka')>=0,
+       'vocab: talas merge the catalogue and karnatik sets');
+
+// 7. The review rows render three pick-lists, shared across the whole batch.
+ev2(`_impRows([{kind:'new', file:{id:'f1',name:'Pahi Durge - Shankarabharanam.pdf'}, prop:matchFile('Pahi Durge - Shankarabharanam.pdf')}],0);`);
+const d2 = w2.document;
+['imRagaL','imTalaL','imCompL'].forEach(id =>
+  assert(d2.getElementById(id)!==null, 'datalist #'+id+' present'));
+assert(d2.querySelector('#kImp2 input[data-f="tala"]')!==null, 'review row has a tala field');
+assert(d2.querySelector('#kImp2 input[data-f="raga"]').getAttribute('list')==='imRagaL',
+       'review row raga field is wired to its list');
+assert(d2.querySelectorAll('#imDL datalist').length===3, 'datalists built once for the batch, not per row');
+// Two rows must still share the one set of lists.
+ev2(`_impRows([{kind:'new', file:{id:'f1',name:'a.pdf'}, prop:matchFile('a.pdf')},
+              {kind:'new', file:{id:'f2',name:'b.pdf'}, prop:matchFile('b.pdf')}],0);`);
+assert(d2.querySelectorAll('#imDL datalist').length===3 && d2.querySelectorAll('#kImp2 .irow').length===2,
+       'a second row reuses the same lists');
+
 console.log(process.exitCode ? 'SMOKE TEST FAILED' : 'ALL SMOKE TESTS PASSED');

@@ -806,6 +806,30 @@ function normKey(name){ var s=String(name||'').toLowerCase(); s=s.replace(/\([^)
 function loadDict(cb){ if(_dict) return cb(_dict);
   fetch('krithi-dictionary.json',{cache:'force-cache'}).then(function(r){return r.json();}).then(function(d){ _dict=d; _dictKey={}; d.forEach(function(e){ if(e.key&&!_dictKey[e.key]) _dictKey[e.key]=e; }); cb(d); }).catch(function(e){ console.log('dict load err',e); _dict=[]; _dictKey={}; cb([]); }); }
 function catKeyMap(){ _catKey={}; CAT.forEach(function(r){ var k=normKey(r.Piece); if(k&&!_catKey[k]) _catKey[k]=r; }); return _catKey; }
+/* ---- Pick-lists for the review rows ---------------------------------------
+   The master catalogue's values come first — 51 ragas, 34 composers, 7 talas, which
+   is what the school actually sings and so what Akka's scans overwhelmingly carry.
+   The karnatik dictionary's ~1000 further ragas follow, so a piece from outside the
+   catalogue is still one keystroke away rather than a transliteration to type from
+   memory. Deduped case-insensitively; built once, and only after the dictionary has
+   loaded (every path into the review list goes through loadDict first). */
+var _vocab=null;
+function vocab(){
+  if(_vocab) return _vocab;
+  var mk=function(a,b){
+    var seen={},out=[];
+    var take=function(list){ (list||[]).slice().sort(function(x,y){ return String(x).toLowerCase().localeCompare(String(y).toLowerCase()); })
+      .forEach(function(v){ v=String(v==null?'':v).trim();
+        if(!v||v==='?'||v==='-'||!/[a-z]/i.test(v)) return;
+        var k=v.toLowerCase(); if(seen[k]) return; seen[k]=1; out.push(v); }); };
+    take(a); take(b); return out;
+  };
+  var dRaga=[],dComp=[],dTala=[];
+  (_dict||[]).forEach(function(e){ if(e.raga) dRaga.push(e.raga); if(e.composer) dComp.push(e.composer); if(e.tala) dTala.push(e.tala); });
+  var M=(typeof META!=='undefined'&&META)||{};
+  _vocab={ ragas:mk(M.ragas,dRaga), composers:mk(M.composers,dComp), talas:mk(M.talas,dTala) };
+  return _vocab;
+}
 /* ---- Fuzzy matching -------------------------------------------------------
    SCHEMA.md promises a fuzzy matcher; the original matchFile only did an exact
    hash lookup on normKey, so any filename that carried extra words (a " - Raga"
@@ -844,7 +868,10 @@ var _fzDict=null,_fzCat=null;
 function fzBuild(){ if(!_fzCat) _fzCat=fzIndex(CAT,function(r){return normKey(r.Piece);});
   if(!_fzDict&&_dict) _fzDict=fzIndex(_dict,function(e){return e.key||normKey(e.name);}); }
 function _fromCat(r,s){ return {title:r.Piece,raga:r.Raga||'',tala:r.Tala||'',composer:r.Composer||'',pieceType:r.Type||'',aro:r.Aro||'',av:r.Av||'',parent:r.Parent||'',src:'catalog',key:normKey(r.Piece),s:s}; }
-function _fromDict(e,s){ return {title:e.name,raga:e.raga||'',tala:'',composer:e.composer||'',pieceType:'',aro:'',av:'',parent:'',src:'dictionary',key:e.key||normKey(e.name),s:s}; }
+/* tala/aro/av/mela come from digitize/karnatik_enrich.py, which walked the karnatik
+   song pages to pick up the fields the original dictionary scrape dropped. About
+   78% of entries carry a tala; the rest fall back to whatever the row is edited to. */
+function _fromDict(e,s){ return {title:e.name,raga:e.raga||'',tala:e.tala||'',composer:e.composer||'',pieceType:'',aro:e.aro||'',av:e.av||'',parent:e.mela||'',src:'dictionary',key:e.key||normKey(e.name),s:s}; }
 function fzRank(q,hint){
   fzBuild(); var key=normKey(q); if(!key) return [];
   var c=[];
@@ -882,11 +909,22 @@ function matchFile(name){
   /* Spelling variants of the SAME piece (master vs karnatik) must not count as rivals,
      or an exact hit present in both sources gets demoted for lack of margin. */
   var rivals=ranked.slice(1).filter(function(x){ return fzScore(x.key,top.key)<FZ_SAME; });
+  var twins=ranked.slice(1).filter(function(x){ return fzScore(x.key,top.key)>=FZ_SAME; });
   var margin=rivals.length?top.adj-rivals[0].adj:100;
   var bucket=(top.s>=FZ_HIGH&&margin>=FZ_MARGIN)?(top.src==='catalog'?'catalog':'dictionary')
             :(top.s>=FZ_LOW?'review':'none');
   if(bucket==='none'){ fallback.match='none'; fallback.score=Math.round(top.s); fallback.alts=ranked.slice(0,4); return fallback; }
   var prop=_mkProp(top,bucket,ranked.slice(1,4));
+  /* The same piece often sits in both sources, and only one of them can be the top
+     match. The master catalogue carries a tala for every row but covers 85 pieces;
+     karnatik covers 8028 but has a tala for about 78% of them. So where the twin
+     entry has a tala and this one does not, borrow it; where both have one and they
+     disagree, keep ours and show theirs, the way we already do for raga. */
+  twins.forEach(function(t){
+    if(!t.tala) return;
+    if(!prop.tala){ prop.tala=t.tala; prop.talaSrc=t.src; }
+    else if(!prop.talaAlt && normKey(t.tala)!==normKey(prop.tala)){ prop.talaAlt=t.tala; prop.talaAltSrc=t.src; }
+  });
   /* Akka's notation is the authority for what the school actually sings, so a raga carried
      by the filename overrides the dictionary's. Where they disagree we keep the dictionary
      value on the row so the disagreement is visible rather than silently overwritten. */
@@ -981,7 +1019,17 @@ function walkImportFolder(folderId,cb){
    +"#kImp2 .fn{font-size:11px;color:#a08b6f;word-break:break-all;margin-bottom:5px}"
    +"#kImp2 .badge2{font-size:10px;padding:1px 7px;border-radius:999px;margin-left:6px}"
    +"#kImp2 .mok{background:#e6efe9;color:#2e7d5b}#kImp2 .mdi{background:#eddfce;color:#7a1f2b}#kImp2 .mno{background:#f6e2e2;color:#b23}"
-   +"#kImp2 .flds{display:grid;grid-template-columns:2fr 1fr 1.4fr;gap:6px}"
+   /* Four fields will not sit on one line on a phone, so the grid is two columns and
+      the title spans both. Wide enough and it opens out to a single row of four. */
+   +"#kImp2 .flds{display:grid;grid-template-columns:1fr 1fr;gap:6px}"
+   +"#kImp2 .flds .f-title{grid-column:1/-1}"
+   +"@media(min-width:560px){#kImp2 .flds{grid-template-columns:2fr 1.2fr 1fr 1.4fr}#kImp2 .flds .f-title{grid-column:auto}}"
+   +"#kImp2 .fw{position:relative}"
+   +"#kImp2 .fw input{padding-right:22px}"
+   /* The native datalist arrow is invisible on most mobile browsers, so draw our own
+      to advertise that these are pickable and not just free-text boxes. */
+   +"#kImp2 .fw:after{content:'';position:absolute;right:8px;top:50%;margin-top:-2px;pointer-events:none;"
+   +"border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #b9a88f}"
    +"#kImp2 .ragaw{font-size:11px;color:#8a5a00;margin-top:5px}"
    +"#kImp2 .alts{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}"
    +"#kImp2 .altc{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid #e7ddcc;background:#faf6ef;color:#6b5330;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
@@ -991,9 +1039,17 @@ function walkImportFolder(folderId,cb){
    +"#kImp2 .go{background:#7a1f2b;color:#fff}#kImp2 .no{background:#f3e9d6;color:#6b5330}";
   document.head.appendChild(css);
   var m=document.createElement('div'); m.id='kImp2';
-  m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="go" id="imGo">Import</button></div></div>';
+  m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="go" id="imGo">Import</button></div></div><div id="imDL"></div>';
   document.body.appendChild(m);
-  var rows=[], _skipped=0;
+  var rows=[], _skipped=0, _dlDone=false;
+  /* One shared set of datalists for the whole list rather than three per row — with a
+     thousand ragas, per-row lists would be megabytes of markup on a thirty-file batch. */
+  function fillLists(){
+    if(_dlDone) return; _dlDone=true;
+    var v=vocab();
+    var one=function(id,vals){ return '<datalist id="'+id+'">'+vals.map(function(x){return '<option value="'+esc(x)+'">';}).join('')+'</datalist>'; };
+    document.getElementById('imDL').innerHTML=one('imRagaL',v.ragas)+one('imTalaL',v.talas)+one('imCompL',v.composers);
+  }
   var badge=function(mt,sc){ var s=(sc||sc===0)?' <span style="opacity:.6;font-weight:400">'+sc+'</span>':'';
     return mt==='catalog'?'<span class="badge2 mok">matched'+s+'</span>'
          :mt==='dictionary'?'<span class="badge2 mdi">from karnatik'+s+'</span>'
@@ -1001,6 +1057,7 @@ function walkImportFolder(folderId,cb){
          :mt==='bundle'?'<span class="badge2 mok">existing bundle</span>'
          :'<span class="badge2 mno">unidentified</span>'; };
   function render(){
+    fillLists();
     var news=rows.filter(function(r){return r.kind!=='existing';}), exi=rows.filter(function(r){return r.kind==='existing';});
     var matched=news.filter(function(r){return r.prop.match!=='none'&&r.prop.match!=='review';}).length;
     var likely=news.filter(function(r){return r.prop.match==='review';}).length;
@@ -1008,20 +1065,26 @@ function walkImportFolder(folderId,cb){
     document.getElementById('imList').innerHTML=rows.map(function(r,i){ var p=r.prop;
       if(r.kind==='existing'){
         return '<div class="irow"><div class="fn">'+esc(r.name)+badge('bundle')+'</div>'
-          +'<div style="font-size:12.5px;color:#6b5330">'+esc(p.title)+(p.raga?' · '+esc(p.raga):'')+(p.composer?' · '+esc(p.composer):'')+'</div></div>';
+          +'<div style="font-size:12.5px;color:#6b5330">'+esc(p.title)+(p.raga?' · '+esc(p.raga):'')+(p.tala?' · '+esc(p.tala):'')+(p.composer?' · '+esc(p.composer):'')+'</div></div>';
       }
-      var rw=p.ragaAlt?('<div class="ragaw">raga from filename kept · karnatik lists <b>'+esc(p.ragaAlt)+'</b></div>'):'';
+      var notes=[];
+      if(p.ragaAlt) notes.push('raga from filename kept · karnatik lists <b>'+esc(p.ragaAlt)+'</b>');
+      if(p.talaAlt) notes.push('tala from the '+(p.talaAltSrc==='catalog'?'karnatik entry':'master catalogue')+' · the other lists <b>'+esc(p.talaAlt)+'</b>');
+      var rw=notes.length?('<div class="ragaw">'+notes.join('<br>')+'</div>'):'';
       var alts=(p.alts&&p.alts.length)?('<div class="alts">'+p.alts.map(function(a,j){
-        return '<button class="altc" data-i="'+i+'" data-j="'+j+'" title="'+esc(a.raga||'')+(a.composer?' · '+esc(a.composer):'')+'">'+esc(a.title)+'</button>'; }).join('')+'</div>'):'';
+        return '<button class="altc" data-i="'+i+'" data-j="'+j+'" title="'+esc(a.raga||'')+(a.tala?' · '+esc(a.tala):'')+(a.composer?' · '+esc(a.composer):'')+'">'+esc(a.title)+'</button>'; }).join('')+'</div>'):'';
+      var combo=function(f,val,ph,list){ return '<div class="fw"><input data-i="'+i+'" data-f="'+f+'" list="'+list+'" value="'+esc(val||'')+'" placeholder="'+ph+'"></div>'; };
       return '<div class="irow"><div class="fn">'+esc(r.file.name)+badge(p.match,p.score)+'</div>'
-        +'<div class="flds"><input data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
-        +'<input data-i="'+i+'" data-f="raga" value="'+esc(p.raga)+'" placeholder="raga">'
-        +'<input data-i="'+i+'" data-f="composer" value="'+esc(p.composer)+'" placeholder="composer"></div>'+rw+alts+'</div>'; }).join('');
+        +'<div class="flds"><input class="f-title" data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
+        +combo('raga',p.raga,'raga','imRagaL')
+        +combo('tala',p.tala,'tala','imTalaL')
+        +combo('composer',p.composer,'composer','imCompL')+'</div>'+rw+alts+'</div>'; }).join('');
     document.getElementById('imList').querySelectorAll('input').forEach(function(inp){ inp.addEventListener('input',function(){ rows[+inp.dataset.i].prop[inp.dataset.f]=inp.value; }); });
     /* One click swaps in an alternate candidate — faster than retyping a transliteration. */
     document.getElementById('imList').querySelectorAll('.altc').forEach(function(b){ b.addEventListener('click',function(){
       var r=rows[+b.dataset.i], a=r.prop.alts[+b.dataset.j]; if(!a) return;
       r.prop.title=a.title; r.prop.tala=a.tala||r.prop.tala||''; r.prop.composer=a.composer||'';
+      r.prop.talaAlt=''; r.prop.talaAltSrc='';   /* the disagreement was about the piece we just replaced */
       /* filename raga still wins over the alternate's */
       r.prop.raga=r.prop.ragaFile||a.raga||'';
       r.prop.ragaAlt=(r.prop.ragaFile&&a.raga&&fzScore(normKey(a.raga),normKey(r.prop.ragaFile))<85)?a.raga:'';
