@@ -48,12 +48,14 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 .cbar{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
 .note{background:#fff;border:1px dashed var(--line);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--muted);margin-bottom:12px}
 #ptable{display:none;width:100%;border-collapse:collapse;font-size:13px}#ptable th,#ptable td{border:1px solid #ccc;padding:6px 8px;text-align:left}
-@media print{header,.tabs,.controls,.count,.acts,#view-browse,#view-library,.cbar,.note,.move,.crm,.cinfo input,#conList{display:none!important}
+@media print{header,.tabs,.controls,.count,.acts,#view-browse,#view-library,.cbar,.note,.move,.crm,.cinfo input,#conList,.sitefoot{display:none!important}
  .wrap{max-width:100%}#printhead,#ptable{display:block!important}#ptable{display:table!important}}
 #printhead{display:none;text-align:center;margin-bottom:12px}
 #view-landing .landing{background:#fff;border:1px solid var(--line);border-radius:16px;padding:36px 24px;text-align:center;margin-top:10px}
 #view-landing .landing h2{color:var(--maroon);margin:0 0 8px;font-size:22px}
 #view-landing .landing p{color:var(--muted);font-size:14px;max-width:430px;margin:0 auto 18px;line-height:1.5}
+.sitefoot{text-align:center;color:var(--muted);font-size:12px;margin:26px 0 10px}
+.sitefoot a{color:var(--muted)}
 </style></head><body>
 <header><h1>The Keerthana App</h1>
 <div class="sub">Keerthana Music School — repertoire, your library and concert planner</div>
@@ -70,6 +72,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
   <p>The repertoire, notations and recordings of Keerthana Music School. Sign in to open your archive and plan concerts.</p>
   <button class="barbtn primary" onclick="authSignIn()">Sign in with Google</button></div>
 </div>
+<div class="sitefoot">Keerthana Music School · <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></div>
 <div id="view-browse" style="display:none">
  <div class="controls">
   <input id="q" placeholder="Search piece, raga, composer…">
