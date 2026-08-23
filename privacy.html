@@ -44,12 +44,12 @@ a{color:var(--maroon)}
 
 <h2>Signing in with Google</h2>
 
-<p>Signing in is optional — you can browse the school's repertoire without an account. If you do sign in, the app asks Google for the following, and uses each only as described:</p>
+<p>When you sign in, the app asks Google for the following, and uses each only as described:</p>
 
 <ul>
-  <li><strong>Your email address and basic profile</strong> (<code>openid</code>, <code>email</code>, <code>profile</code>) — to show you which account you are signed in as, and to decide whether you are a student, an admin or a teacher. The check happens in your browser against a short list of school addresses built into the app. Your email is not transmitted to us or to anyone else.</li>
-  <li><strong>Per-file access to your Google Drive</strong> (<code>drive.file</code>) — so the app can save your personal library. It creates one file, <code>keerthana-library.json</code>, in your Drive, holding your starred songs, your concert programmes and any material you have added yourself, so that these follow you between your phone and your computer. This permission lets the app see only files it created itself or that you explicitly picked; the rest of your Drive stays invisible to it.</li>
-  <li><strong>Full Google Drive access</strong> (<code>drive</code>) — requested only from teachers and admins, and only at the moment they first curate the shared archive. The school's sheet music lives in a shared Drive folder that the app did not create, so per-file access cannot reach it. It is used solely to read and organise that archive.</li>
+  <li><strong>Your email address and basic profile</strong> (<code>openid</code>, <code>email</code>, <code>profile</code>) — to show you which account you are signed in as, and to decide whether you are a student, an admin or a teacher. The check happens in your browser against a list of email addresses for enrolled users built into the app. Your email is not transmitted to us or to anyone else every time you login i.e. we do not track use.</li>
+  <li><strong>Per-file access to your Google Drive</strong> (<code>drive.file</code>) — so the app can save your personal library. It creates one file, <code>keerthana-library.json</code>, in your Google Drive, holding your starred songs, your concert programmes and any material you have added yourself, so that these follow you between your phone and your computer. This permission lets the app see only files it created itself or that you explicitly picked; the rest of your Google Drive stays invisible to it.</li>
+  <li><strong>Full Google Drive access</strong> (<code>drive</code>) — requested only from teachers and admins, and only at the moment they first curate the shared archive. The school's music sheets are stored in a shared Drive folder that the app did not create, so per-file access cannot reach it. It is used solely to read and organise that archive.</li>
 </ul>
 
 <p>The access token Google issues is held in memory for the duration of your visit and is discarded when you sign out or close the tab. We never see it.</p>
