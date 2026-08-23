@@ -146,9 +146,44 @@ assert(r.tala==='roopaka', 'matchFile: karnatik tala reaches the row');
 r = mf('no tala here.pdf');
 assert(r.tala==='', 'matchFile: an entry without a tala leaves the box empty rather than guessing');
 
-// A catalogue match should keep the catalogue's own tala.
+// A match against the school's own krithi list should keep that list's tala, and
+// beat the karnatik dictionary. The list is no longer a baked-in spreadsheet
+// snapshot — it is derived from the archive index — so seed the index the way the
+// app would have it after a master signs in, then let syncCat() build CAT from it.
+ev2(`AS.role='teacher';
+_masterIdx={items:[
+  {title:'kanakana ruchirA', raga:'varALi', tala:'aadi', composer:'Tyaagaraaja',
+   pieceType:'kriti', aro:'S R3 G3 M1 P D3 N3 S', av:'S N3 D3 P M1 G3 R3 S',
+   parent:'calanaaTTai', notationId:'FAKEID', notationUrl:'', children:[]}
+]};
+_arcIdx={items:[{title:'a personal piece', raga:'x', tala:'y', composer:'z',
+   pieceType:'', aro:'', av:'', parent:'', notationId:'', notationUrl:'', children:[]}]};
+_catSrc=null; _catKey={}; _fzCat=null; _kdb=null;`);
+assert(ev2('syncCat().length')===1, 'syncCat: CAT is derived from the archive index');
+assert(ev2("syncCat()[0].Piece")==='kanakana ruchirA' && ev2("syncCat()[0].Aro")!=='',
+       'syncCat: index fields map onto the catalogue row shape, aro included');
+
 r = mf('kanakana ruchirA - varALi.pdf');
-assert(r.match==='catalog' && r.tala==='aadi', 'matchFile: catalogue match keeps the catalogue tala');
+assert(r.match==='catalog' && r.tala==='aadi', 'matchFile: a match in the school list keeps its tala');
+
+// Rebuilding the index must drop the structures memoised over the old rows,
+// or an import right after a rebuild would still match the previous archive.
+ev2(`_masterIdx={items:[]};`);
+assert(ev2('syncCat().length')===0, 'syncCat: replacing the index rebuilds CAT rather than serving a stale copy');
+r = mf('kanakana ruchirA - varALi.pdf');
+assert(r.match!=='catalog', 'syncCat: the memoised match indexes are dropped with the rows');
+
+// The app nulls _masterIdx to force a reload after an import or a rebuild. In that
+// window a curator must NOT silently get their personal archive as the school list.
+ev2(`_masterIdx=null; _catSrc=null; _catKey={}; _fzCat=null; _kdb=null;`);
+assert(ev2('syncCat().length')===0,
+       'syncCat: a master with no master index gets nothing, never the personal archive');
+
+// A plain user, by contrast, is supposed to read their own archive.
+ev2(`AS.role='user'; _catSrc=null; _catKey={}; _fzCat=null; _kdb=null;`);
+assert(ev2('syncCat().length')===1 && ev2("syncCat()[0].Piece")==='a personal piece',
+       'syncCat: a user reads their own archive');
+ev2(`AS.role=null; _masterIdx=null; _arcIdx=null; _catSrc=null; _catKey={}; _fzCat=null; _kdb=null;`);
 
 // 6. The pick-lists: master catalogue first, then karnatik, deduped case-insensitively.
 ev2(`_dict=[
