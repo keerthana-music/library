@@ -426,7 +426,19 @@ function scanArchive(){
 }
 /* ---- index.json layer: an app-maintained aggregate catalogue of an archive root's bundles.
    Same mechanism for a personal archive and (next) the master. bundle.json stays source of truth. ---- */
-function _notationFileId(tree){ var f=(tree.files||[]).filter(function(x){return x.name!=='bundle.json'&&x.mimeType!=='application/vnd.google-apps.folder';})[0]; return f?f.id:''; }
+/* The notation is the one real file in a bundle folder. Prefer an actual PDF over
+   "whatever is first": bundles now arrive via Drive Desktop from a Mac, which drops
+   .DS_Store into folders, and picking that as the notation gives a card with a
+   broken 📄 link. Fall back to the old first-non-label rule so bundles holding a
+   scan in some other format still resolve. */
+function _notationFileId(tree){
+  var real=(tree.files||[]).filter(function(x){
+    return x.name!=='bundle.json' && x.mimeType!=='application/vnd.google-apps.folder'
+        && x.name.charAt(0)!=='.'; });
+  var pdf=real.filter(function(x){ return x.mimeType==='application/pdf'||/\.pdf$/i.test(x.name||''); })[0];
+  var f=pdf||real[0];
+  return f?f.id:'';
+}
 function _indexItem(tree){ var m=tree.meta||{},mm=m.meta||{};
   return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',pieceType:mm.pieceType||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),notationUrl:m.notationUrl||'',
     children:(tree.children||[]).map(function(c){var cm=c.meta||{};return {id:c.folderId,type:c.type,label:cm.label||cm.title||c.type,notationId:_notationFileId(c)};})};
