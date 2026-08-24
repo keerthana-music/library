@@ -139,6 +139,7 @@ ev2(`_dict=[
 _dict.forEach(function(e){ e.key=normKey(e.name); });
 _dictKey={}; _dict.forEach(function(e){ _dictKey[e.key]=e; });
 _fzDict=null; _fzCat=null; _vocab=null;`);
+const VOCAB_TALAS = ev2('VOCAB.talas.length');
 
 r = mf('Pahi Durge - Shankarabharanam.pdf');
 assert(r.tala==='roopaka', 'matchFile: karnatik tala reaches the row');
@@ -200,16 +201,27 @@ assert(V.ragas.indexOf('someNewRaga')>=0 && V.ragas.indexOf('SOMENEWRAGA')<0,
 assert(V.ragas.indexOf('?')<0, 'vocab: junk entries dropped');
 assert(V.composers.filter(c=>c.toLowerCase()==='tyaagaraaja').length===1,
        'vocab: a composer in both sources appears once');
-assert(V.talas.indexOf('aadi')>=0 && V.talas.indexOf('tishra Eka')>=0,
-       'vocab: talas merge the catalogue and karnatik sets');
-// The Eka talas the school sings are not in the master catalogue's 85 pieces, so they
-// must be seeded by hand — and must land in the first group, not karnatik's tail.
-const nHouse = 7 + 3;   // META.talas + HOUSE_TALAS
-['Eka','tishra Eka','khaNDa Eka'].forEach(t =>
+assert(V.talas.indexOf('Adi')>=0 && V.talas.indexOf('tisra Eka')>=0,
+       'vocab: talas merge the school vocabulary and the karnatik set');
+// The Eka talas are now carried by VOCAB itself (HOUSE_TALAS is retired), and must
+// still land in the first group rather than karnatik's alphabetical tail.
+const nHouse = VOCAB_TALAS;
+['Eka','tisra Eka','khaNDa Eka'].forEach(t =>
   assert(V.talas.indexOf(t)>=0 && V.talas.indexOf(t)<nHouse,
          'vocab: "'+t+'" sits with the school\'s talas (at '+V.talas.indexOf(t)+')'));
-assert(V.talas.filter(t=>t.toLowerCase()==='tishra eka').length===1,
-       'vocab: a seeded tala that karnatik also lists appears once');
+assert(V.talas.filter(t=>t.toLowerCase()==='tisra eka').length===1,
+       'vocab: a school tala that karnatik also lists appears once');
+
+// 6b. The near-match guard. Free text is allowed, so the guard's whole job is to
+// catch a second spelling of something already in the vocabulary.
+assert(ev2("vKey('sahAnA')")===ev2("vKey('shahAna')"), 'vKey: sahAnA and shahAna fold together');
+assert(ev2("vKey('Muthuswami Dikshitar')")===ev2("vKey('Muttuswaamee Dikshitar')"),
+       'vKey: the two Dikshitar spellings fold together');
+assert(ev2("vKey('tODi')")!==ev2("vKey('tODaya')"), 'vKey: genuinely different names stay apart');
+assert(ev2("vNear('shahAna',VOCAB.ragas)")==='sahAna', 'vNear: proposes the spelling already in use');
+assert(ev2("vNear('sahAna',VOCAB.ragas)")===null, 'vNear: an exact term is not a collision');
+assert(ev2("vNear('bindumAlini',VOCAB.ragas)")===null, 'vNear: a genuinely new raga passes through');
+assert(ev2("vNear('',VOCAB.ragas)")===null, 'vNear: empty input is quiet');
 
 // 7. The review rows render three pick-lists, shared across the whole batch.
 ev2(`_impRows([{kind:'new', file:{id:'f1',name:'Pahi Durge - Shankarabharanam.pdf'}, prop:matchFile('Pahi Durge - Shankarabharanam.pdf')}],0);`);

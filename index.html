@@ -48,7 +48,9 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 .cbar{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
 .note{background:#fff;border:1px dashed var(--line);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--muted);margin-bottom:12px}
 #ptable{display:none;width:100%;border-collapse:collapse;font-size:13px}#ptable th,#ptable td{border:1px solid #ccc;padding:6px 8px;text-align:left}
-@media print{header,.tabs,.controls,.count,.acts,#view-browse,#view-library,.cbar,.note,.move,.crm,.cinfo input,#conList,.sitefoot{display:none!important}
+@media print{header,.tabs,.controls,.count,.acts,#view-browse,#view-library,.cbar,.note,.move,.crm,.cinfo input,#conList,.vwarn{background:#fdf3e3;border:1px solid #e8d3a8;border-radius:9px;padding:7px 10px;margin:-4px 0 8px;font-size:12.5px;color:#7a5a1f}
+.vwarn button{border:1px solid #e0cba0;background:#fff;border-radius:7px;padding:2px 9px;font-size:12px;margin-left:6px;cursor:pointer}
+.sitefoot{display:none!important}
  .wrap{max-width:100%}#printhead,#ptable{display:block!important}#ptable{display:table!important}}
 #printhead{display:none;text-align:center;margin-bottom:12px}
 #view-landing .landing{background:#fff;border:1px solid var(--line);border-radius:16px;padding:36px 24px;text-align:center;margin-top:10px}
@@ -101,7 +103,55 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 </div>
 </div>
 <script>
-const META={"ragas": ["AbhOgi", "amrtavarSaNi", "Arabhi", "bahudAri", "bauLi", "bEgaDa", "behAg", "bhairavi", "bhUpALa", "candrajyOti", "cArukEsi", "darbAr", "dharmavati", "gauLa", "hamIrkalyANi", "hamsadhvani", "hamsAnandi", "hamsarUpiNi", "harikAmbhOji", "hindOLam", "kalyANi", "kamalamanOhari", "kAmbhOji", "kAnaDa", "kurinji", "mOhana", "mOhanakalyANi", "naLinakAnti", "nAsikAbhUSaNi", "nATakuranji", "pantuvarALi", "pUrvikalyANi", "rAgamAlikA", "ranjani", "rasikapriyA", "saNmukhapriyA", "sAranga", "sarasvati", "sAvEri", "shahAna", "shankarAbharaNam", "shAradAbharaNam", "shrI", "shrIranjani", "shuddhasAvEri", "sindhubhairavi", "tODi", "varALi", "vasanta", "yadukulakAmbhOji", "yamunAkalyANi"], "composers": ["Aandaal", "Annamaacaarya", "Arunaacala Kavi", "Badraacala Raamadaas", "Balusvami Dikshitar", "G.N. Baalasubramaniam", "Garbhapurivaasa", "GOpaalakrishna Bhaarati", "H.H. CandrasEkhara BhArathi", "KoTTavaasa VenkaTaraama Aiyyar", "LaalguDi Jayaraaman", "M.M. DanDapaaNi DEshikar", "Madras Ponnusami", "Mulaividu Rangasami Nattuvanar", "Muthuswami Dikshitar", "Namakkal Narasimha Iyengar", "Paapanaasam Shivan", "Pacchimiryam Adiappiah", "Pallavi GOpaala Aiyyar", "PaTnam Subramanya Aiyyar", "Periaazhvaar", "Pooci Srinivaasa Iyengar", "Shyaamaa Shaastree", "Subramanya Bhaarati", "Swaati TirunaaL", "T Singaracharyulu", "TanangambaDi Pancanaada Aiyyar", "TiruvoTTiyur Tyaagayya", "Tulsidas", "Tyaagaraaja", "Unknown composers", "Uthra Vijayaraghavan", "VaDivElu", "Veenai Kuppaiyyar"], "types": ["bhajan", "jatheeswaram", "kriti", "naamaavaLi", "shlOkam", "tillaanaa", "TukuDaa", "varnam - pada", "varnam - taana", "varnam - taana - tana"], "talas": ["aadi", "aadi (dEshaadi)", "aTa", "jhampe", "khaNDa cApu", "misra cApu", "roopaka"]};
+/* The school's vocabulary, normalised to House ITRANS (see
+   digitize/house_itrans.py and vocab/decisions.csv). Seeded from the terms the
+   archive actually uses, not from the 5000-raga karnatik list — new terms are
+   typed free-hand and swept up periodically by digitize/scan_vocab.py.
+   Replaces META, whose lists had drifted into two spellings of the same raga. */
+const VOCAB={ragas:["AbhOgi", "Anandabhairavi", "Arabhi", "IshamanOhari", "aTANA", "amRtavarShiNi", "bahudAri", "bauLi", "behAg", "bhUpALa", "bhairavi", "cArukEsi", "candrajyOti", "cenjuruTTi", "dharmavati", "gauLa", "hamIrkalyANi", "hamsAnandi", "hamsadhvani", "hamsarUpiNi", "harikAmbhOji", "hindOLam", "kAmbhOji", "kEdAragauLa", "kEdAram", "kalyANi", "kamalamanOhari", "khamAs", "kuntalavarALi", "kurinji", "mAyAmALavagauLa", "mOhanakalyANi", "mOhanam", "madhyamAvati", "nATakuranji", "nAgasvarALi", "nAsikAbhUShaNi", "naLinakAnti", "pUrvikalyANi", "rAgamAlikA", "rItigauLa", "ranjani", "rasikapriyA", "sAranga", "sAvEri", "sahAna", "sarasvati", "shAradAbharaNam", "shaNmukhapriyA", "shankarAbharaNam", "shrIranjani", "shubhapantuvarALi", "shuddhasAvEri", "sindhubhairavi", "tODi", "varALi", "vasanta", "yadukulakAmbhOji", "yamunAkalyANi"],talas:["Adi", "Adi (dEshAdi)", "Eka", "aTa", "jhampe", "khaNDa Eka", "khaNDa cApu", "misra cApu", "rUpaka", "tisra Eka"],types:["TukuDA", "bhajan", "jatIsvaram", "kriti", "nAmAvaLi", "shlOkam", "tillAnA", "varNam - pada", "varNam - tAna"],composers:["ANDAL", "AnnamAcArya", "AruNAgirinAtar", "G.N. Balasubramaniam", "H.H. Chandrasekhara Bharathi", "Lalgudi Jayaraman", "M.M. Dandapani Desikar", "Mysore Vasudevacharya", "Namakkal Narasimha Iyengar", "Papanasam Shivan", "Subramanya Bharati", "T singarAcAryulu", "Uthra Vijayaraghavan", "aruNAcala kavi", "bAlusvami dIkShitar", "bhadrAcala rAmadAsu", "gOpAlakRShNa bhArati", "muttusvAmi dIkShitar", "paTnam subramaNya aiyar", "pallavi gOpAla aiyar", "periAzhvAr", "purandara dAsa", "shyAmA shAstri", "svAti tirunAL", "tanangambaDi pancanAda aiyar", "tulasIdAs", "tyAgarAja", "vaDivElu"]};
+
+/* ---- Near-match guard -----------------------------------------------------
+   vKey mirrors fold() in digitize/house_itrans.py — keep the two in step. It
+   folds every spelling of a name onto one key, so `sahAnA` and `shahAna` land
+   on the same string, as do `Muthuswami` and `Muttuswaamee` Dikshitar.
+   Free text stays allowed: rare ragas and talas do turn up, and a closed list
+   would just push people into picking the wrong neighbour. What the guard
+   prevents is the *same* term entering under a second spelling, which is how
+   the archive came to hold 61 raga strings for 58 ragas. */
+function vKey(s){
+  s=(s||'').toLowerCase().replace(/[^a-z]/g,'');
+  var R=[['aa','a'],['ee','i'],['ii','i'],['oo','u'],['uu','u'],['ow','au'],['ou','au'],['w','v'],
+         ['th','t'],['dh','d'],['bh','b'],['gh','g'],['kh','k'],['ph','p'],['ch','c'],['jh','j'],['sh','s']];
+  for(var i=0;i<R.length;i++) s=s.split(R[i][0]).join(R[i][1]);
+  return s.replace(/(.)\1+/g,'$1');
+}
+/* The vocabulary entry a typed value collides with, or null. An exact hit is
+   not a collision — it is the term itself. */
+function vNear(val,list){
+  var v=(val||'').trim(); if(!v) return null;
+  list=list||[];
+  for(var i=0;i<list.length;i++) if(list[i]===v) return null;
+  var k=vKey(v);
+  for(var j=0;j<list.length;j++) if(vKey(list[j])===k) return list[j];
+  return null;
+}
+/* Attach the guard to a free-text field. Fires on blur, offers the existing
+   spelling, and lets the curator keep theirs — it advises, it does not block. */
+function vGuard(inputId,list){
+  var el=document.getElementById(inputId); if(!el||el._vguard) return; el._vguard=1;
+  var w=document.createElement('div'); w.className='vwarn'; w.style.display='none';
+  el.parentNode.insertBefore(w,el.nextSibling);
+  el.addEventListener('blur',function(){
+    var hit=vNear(el.value,(typeof list==='function')?list():list);
+    if(!hit){ w.style.display='none'; return; }
+    w.innerHTML='Already in the list as <b>'+esc(hit)+'</b> — did you mean that? '
+      +'<button type="button" class="vuse">Use it</button>'
+      +'<button type="button" class="vkeep">Keep mine</button>';
+    w.style.display='';
+    w.querySelector('.vuse').onclick=function(){ el.value=hit; w.style.display='none'; };
+    w.querySelector('.vkeep').onclick=function(){ w.style.display='none'; };
+  });
+}
 /* The school's krithi list. Derived from the archive itself (bundle.json ->
    MASTER/index.json) rather than from a published spreadsheet snapshot, so it
    cannot drift from what is actually filed. Everyone who curates the master is
@@ -139,11 +189,6 @@ let imported=JSON.parse(localStorage.getItem('kms_imp')||'{}');
 const saveImp=()=>{localStorage.setItem('kms_imp',JSON.stringify(imported));if(window.__sync)window.__sync();};
 const _b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const _unb64=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(s))));};
-/* Talas the school sings that the master catalogue's 85 pieces happen not to cover,
-   so META.talas never learned them. They exist in the karnatik vocabulary, but that
-   is a long alphabetical tail — these belong in the first group with the rest of
-   ours. Spelled to match the karnatik forms so the two dedupe to one entry. */
-const HOUSE_TALAS=['Eka','tishra Eka','khaNDa Eka'];
 /* Resolve a concert entry (keyed by title) across the current data sources — master index,
    personal index. */
 function _conRow(k){
@@ -757,9 +802,9 @@ function createBundle(rootId,spec){
    +'<label>Tala</label><input id="kaTala" list="kaTalaL" placeholder="tala">'
    +'<label>Composer</label><input id="kaComp" list="kaCompL" placeholder="composer"></div>'
    +'<div id="kaChild" style="display:none"><label>Attach to which piece?</label><input id="kaParent" list="kaParentL" placeholder="type a piece name"></div>'
-   +dl('kaRagaL',(typeof META!=='undefined'&&META.ragas)||[])
-   +dl('kaTalaL',(((typeof META!=='undefined'&&META.talas)||[]).concat(HOUSE_TALAS)).sort(function(a,b){return a.toLowerCase().localeCompare(b.toLowerCase());}))
-   +dl('kaCompL',(typeof META!=='undefined'&&META.composers)||[])
+   +dl('kaRagaL',VOCAB.ragas)
+   +dl('kaTalaL',VOCAB.talas)
+   +dl('kaCompL',VOCAB.composers)
    /* Filled in openAdd, not here: this markup is built once at load, when the
       archive index has not been fetched yet and CAT is still empty. */
    +'<datalist id="kaParentL"></datalist>'
@@ -768,6 +813,7 @@ function createBundle(rootId,spec){
   var picked={fileId:'',fileName:''}, _targetRoot=null;
   function toggle(){ var t=document.getElementById('kaType').value; document.getElementById('kaPiece').style.display=(t==='piece')?'':'none'; document.getElementById('kaChild').style.display=(t==='piece')?'none':''; }
   document.getElementById('kaType').onchange=toggle;
+  vGuard('kaRaga',VOCAB.ragas); vGuard('kaTala',VOCAB.talas); vGuard('kaComp',VOCAB.composers);
   document.getElementById('kaCancel').onclick=function(){ m.style.display='none'; };
   document.getElementById('kaGo').onclick=function(){
     if(!AS.token){ toast('Sign in first'); return; }
@@ -837,9 +883,8 @@ function vocab(){
   };
   var dRaga=[],dComp=[],dTala=[];
   (_dict||[]).forEach(function(e){ if(e.raga) dRaga.push(e.raga); if(e.composer) dComp.push(e.composer); if(e.tala) dTala.push(e.tala); });
-  var M=(typeof META!=='undefined'&&META)||{};
-  _vocab={ ragas:mk(M.ragas,dRaga), composers:mk(M.composers,dComp),
-           talas:mk((M.talas||[]).concat(HOUSE_TALAS),dTala) };
+  _vocab={ ragas:mk(VOCAB.ragas,dRaga), composers:mk(VOCAB.composers,dComp),
+           talas:mk(VOCAB.talas,dTala) };
   return _vocab;
 }
 /* ---- Fuzzy matching -------------------------------------------------------
