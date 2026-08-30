@@ -284,4 +284,43 @@ assert(d2.getElementById('arcRebuild')!==null, 'archive has a rebuild button');
 assert(d2.getElementById('edReplace')!==null, 'edit modal has a Replace notation button');
 assert(d2.getElementById('edNota')!==null, 'edit modal names the current notation');
 
+// 10. The near-match guard reaches the Edit modal, not just Add.
+//     An edit was the last way a second spelling of an existing term could enter.
+['edRagaL','edTalaL','edCompL','edTypeL'].forEach(function(id){
+  assert(d2.getElementById(id)!==null, 'edit modal: datalist #'+id+' present');
+});
+['edRaga','edTala','edComposer','edType'].forEach(function(id){
+  assert(ev2("!!document.getElementById('"+id+"')._vrun"), 'edit modal: '+id+' carries the guard');
+});
+// The advisory has to survive a blur on a real near-miss...
+ev2("var _g=document.getElementById('edRaga'); _g.value='shahAna'; _g._vrun();");
+assert(/sahAna/.test(ev2("document.getElementById('edRaga').nextSibling.innerHTML")),
+       'edit modal: a near-duplicate raga is flagged with the spelling in use');
+// ...and clear itself when the field is put right, so a stale warning cannot
+// carry over to the next piece opened.
+ev2("var _g=document.getElementById('edRaga'); _g.value='sahAna'; _g._vrun();");
+assert(ev2("document.getElementById('edRaga').nextSibling.style.display")==='none',
+       'edit modal: the warning clears once the canonical spelling is in the field');
+// vTouch is what re-runs the guard after a programmatic fill (the karnatik picker).
+assert(ev2('typeof vTouch')==='function', 'vTouch defined for programmatic fills');
+ev2("document.getElementById('edTala').value='misra chaapu'; vTouch('edTala');");
+assert(/misra cApu/.test(ev2("document.getElementById('edTala').nextSibling.innerHTML")),
+       'vTouch: a filled-in value is checked even though blur never fired');
+
+// 11. The ?add= handler is gone, and the ?import= share path is not.
+assert(ev2('typeof _showImport')==='undefined', '?add=: the accept-modal helper is gone');
+assert(d2.getElementById('kImp')===null, '?add=: the #kImp modal is gone');
+assert(ev2('typeof imported')==='undefined', '?add=: the dead imported{} map is gone');
+assert(!/imported/.test(ev2('JSON.stringify({star:[...star],con:con,sh:sh})')),
+       '?add=: the Drive sync payload no longer carries it');
+assert(ev2('typeof _b64')==='function' && ev2('typeof _unb64')==='function',
+       '?import=: the live share link encoders are untouched');
+
+// 12. The guard's advisory is styled on screen, not only when printing.
+//     It had been folded into the @media print selector list, which cost it its
+//     styling and stopped that rule hiding the app chrome.
+const _css = fs.readFileSync(path.join(here,'index.html'),'utf8')
+               .split('@media print{')[0];   // the rule itself, not the comment above it
+assert(/\.vwarn\{/.test(_css), '.vwarn is styled outside the print block');
+
 console.log(process.exitCode ? 'SMOKE TEST FAILED' : 'ALL SMOKE TESTS PASSED');

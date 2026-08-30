@@ -140,12 +140,16 @@ function vNear(val,list){
   return null;
 }
 /* Attach the guard to a free-text field. Fires on blur, offers the existing
-   spelling, and lets the curator keep theirs — it advises, it does not block. */
+   spelling, and lets the curator keep theirs — it advises, it does not block.
+   The check is also stored on the element as _vrun so vTouch() can re-run it
+   after a *programmatic* fill, which blur never sees. That matters in the Edit
+   modal: picking a karnatik match writes raga and composer straight into the
+   inputs, and karnatik is exactly the non-house-ITRANS source drift comes from. */
 function vGuard(inputId,list){
   var el=document.getElementById(inputId); if(!el||el._vguard) return; el._vguard=1;
   var w=document.createElement('div'); w.className='vwarn'; w.style.display='none';
   el.parentNode.insertBefore(w,el.nextSibling);
-  el.addEventListener('blur',function(){
+  el._vrun=function(){
     var hit=vNear(el.value,(typeof list==='function')?list():list);
     if(!hit){ w.style.display='none'; return; }
     w.innerHTML='Already in the list as <b>'+esc(hit)+'</b> — did you mean that? '
@@ -154,7 +158,16 @@ function vGuard(inputId,list){
     w.style.display='';
     w.querySelector('.vuse').onclick=function(){ el.value=hit; w.style.display='none'; };
     w.querySelector('.vkeep').onclick=function(){ w.style.display='none'; };
-  });
+  };
+  el.addEventListener('blur',el._vrun);
+}
+/* Re-run the guard on fields that were filled in code rather than typed. Safe to
+   call on an id that was never guarded, or before the modal has been built. */
+function vTouch(){
+  for(var i=0;i<arguments.length;i++){
+    var el=document.getElementById(arguments[i]);
+    if(el&&el._vrun) el._vrun();
+  }
 }
 /* The school's krithi list. Derived from the archive itself (bundle.json ->
    MASTER/index.json) rather than from a published spreadsheet snapshot, so it
@@ -189,8 +202,10 @@ let sh=JSON.parse(localStorage.getItem(LS.sh)||'{}');
 let favOnly=false;
 const save=()=>{localStorage.setItem(LS.star,JSON.stringify([...star]));localStorage.setItem(LS.con,JSON.stringify(con));localStorage.setItem(LS.sh,JSON.stringify(sh));if(window.__sync)window.__sync();};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let imported=JSON.parse(localStorage.getItem('kms_imp')||'{}');
-const saveImp=()=>{localStorage.setItem('kms_imp',JSON.stringify(imported));if(window.__sync)window.__sync();};
+/* `imported{}` and its kms_imp key went with the ?add= handler — written by that
+   handler, read by nothing. Drop the stale key so it stops riding along in the
+   Drive sync payload of anyone who ever followed one of those links. */
+try{ localStorage.removeItem('kms_imp'); }catch(e){}
 const _b64=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const _unb64=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(s))));};
 /* Resolve a concert entry (keyed by title) across the current data sources — master index,
@@ -260,29 +275,17 @@ badges();
  const st=document.createElement('style');
  st.textContent=".iconbtn.share{background:#d98324;border-color:#d98324;color:#fff}"
   +"#kToast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#2a221c;color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .3s;z-index:60;pointer-events:none;max-width:88%;text-align:center}"
-  +"#kToast.show{opacity:1}"
-  +"#kImp{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}"
-  +"#kImp .box{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.3)}"
-  +"#kImp h3{margin:0 0 4px;color:#7a1f2b;font-size:19px}"
-  +"#kImp .m{color:#8a7d70;font-size:13px;margin-bottom:16px}"
-  +"#kImp .row{display:flex;gap:8px}"
-  +"#kImp button{flex:1;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer}"
-  +"#kImp .go{background:#7a1f2b;color:#fff}#kImp .no{background:#f3e9d6;color:#6b5330}";
+  +"#kToast.show{opacity:1}";
  document.head.appendChild(st);
  const t=document.createElement('div');t.id='kToast';document.body.appendChild(t);
  window.toast=function(m){t.textContent=m;t.classList.add('show');clearTimeout(t._x);t._x=setTimeout(function(){t.classList.remove('show');},2800);};
- const imp=document.createElement('div');imp.id='kImp';
- imp.innerHTML='<div class="box"><h3 id="kiT"></h3><div class="m" id="kiM"></div><div class="row"><button class="no" id="kiNo">Not now</button><button class="go" id="kiGo">Add to my library</button></div></div>';
- document.body.appendChild(imp);
- document.getElementById('kiNo').onclick=function(){imp.style.display='none';};
- window._showImport=function(rec){
-   document.getElementById('kiT').textContent=rec.Piece;
-   document.getElementById('kiM').textContent=([rec.Raga,rec.Tala,rec.Type,rec.Composer].filter(Boolean).join(' · ')||'a shared song')+' — shared with you';
-   document.getElementById('kiGo').onclick=function(){imported[rec.Piece]=rec;saveImp();badges();imp.style.display='none';toast('Added to your library ✓');var lib=document.querySelector('.tabs button[data-tab="library"]');if(lib)lib.click();};
-   imp.style.display='flex';
- };
- var mm=location.search.match(/[?&]add=([^&]+)/);
- if(mm){ try{ var o=_unb64(decodeURIComponent(mm[1])); var rec={Piece:o.p||'',Composer:o.c||'',Raga:o.r||'',Tala:o.t||'',Type:o.y||'',Link:o.l||'',Aro:o.a||'',Av:o.v||'',Parent:o.m||'',Remarks:''}; if(rec.Piece){ history.replaceState({},'',location.pathname); _showImport(rec);} }catch(e){console.log('bad add link',e);} }
+ /* The `?add=` share link and its #kImp accept-modal were removed here. They wrote
+    into an `imported{}` map that nothing ever read, then switched to a "library"
+    tab that was never built — so an old link toasted "Added to your library ✓"
+    and showed the recipient nothing. Sharing now goes entirely through `?import=`
+    (see _shareLink and the _pendingImport capture at the foot of this file), which
+    files the piece into the recipient's own Drive archive. Old `?add=` links are
+    now inert: the parameter is ignored and the app opens normally. */
 })();
 /* ---- Route B: Google sign-in + own-Drive sync + master/user roles (TEST MODE) ---- */
 const AUTH={
@@ -652,11 +655,11 @@ function driveSyncOnLogin(){
 }
 function mergeIn(remote){
   try{
-    if(remote.imported){ Object.keys(remote.imported).forEach(function(k){ if(!imported[k]) imported[k]=remote.imported[k]; }); }
+    /* remote.imported is deliberately ignored: it is the dead ?add= state, and a
+       remote payload written before this change may still carry it. */
     if(remote.star){ remote.star.forEach(function(k){ star.add(k); }); }
     if(remote.sh){ Object.keys(remote.sh).forEach(function(k){ if(!sh[k]) sh[k]=remote.sh[k]; }); }
     if(remote.con&&remote.con.length&&!con.length){ con=remote.con; }
-    localStorage.setItem('kms_imp',JSON.stringify(imported));
     localStorage.setItem(LS.star,JSON.stringify([...star]));
     localStorage.setItem(LS.con,JSON.stringify(con));
     localStorage.setItem(LS.sh,JSON.stringify(sh));
@@ -664,7 +667,7 @@ function mergeIn(remote){
 }
 function saveAll(){
   if(!AS.token) return;
-  var payload=JSON.stringify({imported:imported,star:[...star],con:con,sh:sh,updated:new Date().toISOString()});
+  var payload=JSON.stringify({star:[...star],con:con,sh:sh,updated:new Date().toISOString()});
   if(AS.fileId){
     fetch('https://www.googleapis.com/upload/drive/v3/files/'+AS.fileId+'?uploadType=media',
       {method:'PATCH',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:payload}).catch(function(e){console.log('save err',e);});
@@ -1213,6 +1216,10 @@ window.openEdit=function(fid){
   document.getElementById('edTala').value=it.tala||'';
   document.getElementById('edComposer').value=it.composer||'';
   document.getElementById('edType').value=it.pieceType||'';
+  /* Clears any warning left over from the last piece edited, and flags a legacy
+     value on open. Silent for anything already canonical, since vNear treats an
+     exact hit as the term itself rather than a collision. */
+  vTouch('edRaga','edTala','edComposer','edType');
   loadDict(function(){ _kdb=null; });
   var es=document.getElementById('edSearch'); if(es) es.value='';
   var er=document.getElementById('edResults'); if(er){ er.innerHTML=''; er.style.display='none'; }
@@ -1322,21 +1329,29 @@ function _editRemove(){
    +"#kEdit .nota{font-size:12.5px;color:#6b5330;background:#f3e9d6;border-radius:8px;padding:8px 10px;word-break:break-all}"
    +"#kEdit .alt{background:#f7efe0;color:#6b5330;border:1px solid #e7ddcc!important}";
   document.head.appendChild(css);
+  var edl=function(id,vals){ return '<datalist id="'+id+'">'+(vals||[]).map(function(v){return '<option value="'+esc(v)+'">';}).join('')+'</datalist>'; };
   var m=document.createElement('div'); m.id='kEdit';
   m.innerHTML='<div class="box"><h3>Edit piece</h3>'
    +'<label>Find in the Karnatic database</label><input id="edSearch" placeholder="Type a piece name…" autocomplete="off">'
    +'<div id="edResults"></div><div class="hint">Pick a match to fill the fields below, or edit them by hand.</div><div class="sep"></div>'
    +'<label>Piece</label><input id="edTitle">'
-   +'<label>Raga</label><input id="edRaga">'
-   +'<label>Tala</label><input id="edTala">'
-   +'<label>Composer</label><input id="edComposer">'
-   +'<label>Type</label><input id="edType">'
+   +'<label>Raga</label><input id="edRaga" list="edRagaL">'
+   +'<label>Tala</label><input id="edTala" list="edTalaL">'
+   +'<label>Composer</label><input id="edComposer" list="edCompL">'
+   +'<label>Type</label><input id="edType" list="edTypeL">'
+   +edl('edRagaL',VOCAB.ragas)+edl('edTalaL',VOCAB.talas)
+   +edl('edCompL',VOCAB.composers)+edl('edTypeL',VOCAB.types)
    +'<div class="sep"></div><label>Notation</label><div class="nota" id="edNota">—</div>'
    +'<div class="row"><button class="alt" id="edReplace">Replace notation…</button></div>'
    +'<div class="hint">Pick the new PDF here rather than swapping it in Drive — the link the families already have keeps working, and the old file is kept in “'+esc(AUTH.TRASH_NAME)+'”.</div>'
    +'<div class="row"><button class="no" id="edCancel">Cancel</button><button class="go" id="edSave">Save</button></div>'
    +'<div class="row"><button class="rm" id="edRemove">Remove from archive</button></div></div>';
   document.body.appendChild(m);
+  /* The same guard the Add modal carries. Without it an edit was the one
+     remaining way a second spelling of an existing term could enter the
+     archive, which is the whole drift story this vocabulary exists to end. */
+  vGuard('edRaga',VOCAB.ragas); vGuard('edTala',VOCAB.talas);
+  vGuard('edComposer',VOCAB.composers); vGuard('edType',VOCAB.types);
   document.getElementById('edCancel').onclick=function(){ document.getElementById('kEdit').style.display='none'; };
   document.getElementById('edSave').onclick=_editSave;
   document.getElementById('edReplace').onclick=_editReplace;
@@ -1350,6 +1365,9 @@ function _editRemove(){
     Array.prototype.forEach.call(_er.querySelectorAll('.eres'),function(row){ row.onclick=function(){ var e=res[+row.dataset.i];
       document.getElementById('edTitle').value=e.name||''; document.getElementById('edRaga').value=e.raga||'';
       if(e.tala)document.getElementById('edTala').value=e.tala; document.getElementById('edComposer').value=e.composer||''; if(e.type)document.getElementById('edType').value=e.type;
+      /* karnatik spells its own way, so a picked match is the likeliest source
+         of a near-duplicate. Blur never fires on a programmatic fill. */
+      vTouch('edRaga','edTala','edComposer','edType');
       _er.innerHTML=''; _er.style.display='none'; _es.value=''; }; });
   });
 })();
