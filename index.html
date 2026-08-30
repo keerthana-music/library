@@ -48,8 +48,12 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 .cbar{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
 .note{background:#fff;border:1px dashed var(--line);border-radius:12px;padding:12px 14px;font-size:13px;color:var(--muted);margin-bottom:12px}
 #ptable{display:none;width:100%;border-collapse:collapse;font-size:13px}#ptable th,#ptable td{border:1px solid #ccc;padding:6px 8px;text-align:left}
-@media print{header,.tabs,.controls,.count,.acts,#view-browse,#view-library,.cbar,.note,.move,.crm,.cinfo input,#conList,.vwarn{background:#fdf3e3;border:1px solid #e8d3a8;border-radius:9px;padding:7px 10px;margin:-4px 0 8px;font-size:12.5px;color:#7a5a1f}
+/* The near-match guard's advisory box. Kept OUT of the @media print rule below:
+   it had been folded into that rule's selector list, which both stripped its
+   styling on screen and stopped the print rule hiding the app chrome. */
+.vwarn{background:#fdf3e3;border:1px solid #e8d3a8;border-radius:9px;padding:7px 10px;margin:-4px 0 8px;font-size:12.5px;color:#7a5a1f}
 .vwarn button{border:1px solid #e0cba0;background:#fff;border-radius:7px;padding:2px 9px;font-size:12px;margin-left:6px;cursor:pointer}
+@media print{header,.tabs,.controls,.count,.acts,#view-browse,.cbar,.note,.move,.crm,.cinfo input,#conList,.vwarn{display:none!important}
 .sitefoot{display:none!important}
  .wrap{max-width:100%}#printhead,#ptable{display:block!important}#ptable{display:table!important}}
 #printhead{display:none;text-align:center;margin-bottom:12px}
