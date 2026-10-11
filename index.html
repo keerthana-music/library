@@ -329,6 +329,7 @@ function setRole(role){
   if(window.toast)toast('Signed in: '+AS.email+' ('+roleLabel(role)+')');
   driveSyncOnLogin();
   if(_pendingImport){ var pi=_pendingImport; _pendingImport=null; processImport(pi); }
+  if(role==='user') checkApproved();
 }
 /* Share-import: a ?import=<encoded> deep-link → create a reference bundle (notation by URL, no
    copy) in the recipient's PERSONAL archive, skipping titles already there. */
@@ -391,11 +392,13 @@ function onToken(tok){
 }
 /* Members-only: the members service answers for the signed-in account. Not on the list (or the
    check failed) → back to the landing page with a note; nothing of theirs is loaded. */
-function checkMember(tok){
+function svc(action,extra,tok){
   if(!AUTH.MEMBERS_URL) return Promise.reject(new Error('MEMBERS_URL not set'));
-  return fetch(AUTH.MEMBERS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({token:tok})})
+  var body=Object.assign({},extra||{},{token:tok||AS.token,action:action});
+  return fetch(AUTH.MEMBERS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)})
     .then(function(r){ return r.json(); });
 }
+function checkMember(tok){ return svc('check',null,tok); }
 function notMember(email,failed){
   AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null;
   renderAuthBar(); applyAuthView();
@@ -613,7 +616,10 @@ function rArchive(){
 }
 function rResources(){
   var host=document.getElementById('resList'); if(!host) return;
-  host.innerHTML='<div class="empty">Community resources — theory, transliteration guides, composer bios, newsletters, media — are coming soon. Resources you Add (notes, links) will also appear here.</div>';
+  host.innerHTML=(onMaster()?'':'<div class="card reqcard"><div class="main"><div class="piece">Request from Master Archive</div>'
+    +'<div class="composer">Browse the school\'s krithi list and ask for the pieces you are learning. Akka\'s team reviews requests each week.</div></div>'
+    +'<div class="acts"><button class="barbtn primary" onclick="openRequest()">Browse</button></div></div>')
+    +'<div class="empty">Community resources — theory, transliteration guides, composer bios, newsletters, media — are coming soon. Resources you Add (notes, links) will also appear here.</div>';
 }
 /* ---- Master Archive (Admin): read master-index.json from the granted master folder. Retires the spreadsheet for display. ---- */
 var _masterIdx=null,_masterRoot=null;
@@ -821,6 +827,104 @@ function createBundle(rootId,spec){
     });
   });
 }
+/* ---- Request from Master Archive (2026-10-11) -------------------------------------
+   Users browse a names-only list of MASTER served by the members script, tick pieces and send a
+   request; Akka's team decides in the admin Sheet. Approved pieces are picked up here at sign-in
+   (checkApproved) and filed into the user's own archive as link bundles; ones already there are
+   skipped. See LAUNCH_PLAN.md "10 · Request from Master Archive". */
+(function(){
+  var css=document.createElement('style');
+  css.textContent=".reqcard{border-color:#d98324;background:#fffaf1}.reqcard .acts{align-items:center}"
+   +"#kReq,#kPick{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:56;padding:16px}"
+   +"#kReq .box,#kPick .box{background:#fff;border-radius:16px;max-width:520px;width:100%;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-height:90vh;display:flex;flex-direction:column;gap:10px}"
+   +"#kReq h3,#kPick h3{margin:0;color:#7a1f2b;font-size:19px}#kReq .sub,#kPick .sub{font-size:13px;color:#6b5f55;margin:0}"
+   +"#kReq input[type=search]{width:100%;border:1px solid #e7ddcc;border-radius:9px;padding:10px;font-size:15px}"
+   +"#kReq .lst,#kPick .lst{overflow:auto;flex:1;min-height:120px;border:1px solid #f0e6d6;border-radius:10px}"
+   +"#kReq label.it{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-bottom:1px solid #f3ecdf;cursor:pointer}"
+   +"#kReq label.it input{margin-top:3px;width:18px;height:18px;flex:0 0 18px}#kReq .t,#kPick .t{font-weight:600;color:#2a221c}"
+   +"#kReq .m,#kPick .m{font-size:12.5px;color:#6b5f55}#kReq label.have{opacity:.55;cursor:default}"
+   +"#kPick .it{padding:9px 12px;border-bottom:1px solid #f3ecdf}"
+   +"#kReq .ft,#kPick .ft{display:flex;gap:8px;align-items:center}#kReq .ft .n{flex:1;font-size:13px;color:#6b5f55}"
+   +"#kReq .ft button,#kPick .ft button{border:0;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:600;cursor:pointer}"
+   +"#kReq .go,#kPick .go{background:#7a1f2b;color:#fff}#kReq .go:disabled{opacity:.45;cursor:default}#kReq .no,#kPick .no{background:#f3e9d6;color:#6b5330}"
+   +"#kPick .ft .sp{flex:1}";
+  document.head.appendChild(css);
+  var m=document.createElement('div'); m.id='kReq';
+  m.innerHTML='<div class="box"><h3>Request from Master Archive</h3>'
+   +'<p class="sub">Search, tick the pieces you are learning, then send. You will get an email once they are reviewed.</p>'
+   +'<input type="search" id="rqQ" placeholder="Search krithi, raga or composer" aria-label="Search the master archive">'
+   +'<div class="lst" id="rqList" role="list"></div>'
+   +'<div class="ft"><span class="n" id="rqN">None selected</span><button class="no" id="rqCancel">Cancel</button><button class="go" id="rqGo" disabled>Send request</button></div></div>';
+  document.body.appendChild(m);
+  var items=[], have={}, sel={}, key=function(x){ return (typeof vKey==='function'?vKey(x||''):String(x||'').toLowerCase()); };
+  var lc=function(x){ return String(x||'').trim().toLowerCase(); };
+  function count(){ var n=Object.keys(sel).length; document.getElementById('rqN').textContent=n?(n+' selected'):'None selected'; document.getElementById('rqGo').disabled=!n; }
+  function draw(){
+    var q=key(document.getElementById('rqQ').value), host=document.getElementById('rqList');
+    var out=items.filter(function(it){ return !q||key(it.t+' '+it.r+' '+it.c).indexOf(q)>=0; });
+    var more=out.length>200; out=out.slice(0,200);
+    host.innerHTML=out.length?out.map(function(it){ var h=have[lc(it.t)];
+      return '<label class="it'+(h?' have':'')+'" role="listitem"><input type="checkbox" data-id="'+esc(it.id)+'"'+(sel[it.id]?' checked':'')+(h?' disabled':'')+'>'
+        +'<span><span class="t">'+esc(it.t)+'</span><br><span class="m">'+esc([it.r,it.tl,it.c].filter(Boolean).join(' · '))+(h?' · already in your archive':'')+'</span></span></label>'; }).join('')
+        +(more?'<div class="empty">Showing the first 200 - type to narrow the list.</div>':'')
+      :'<div class="empty">'+(items.length?'No matches.':'The master list is empty.')+'</div>';
+  }
+  document.getElementById('rqList').addEventListener('change',function(e){ var id=e.target&&e.target.getAttribute('data-id'); if(!id) return; if(e.target.checked) sel[id]=1; else delete sel[id]; count(); });
+  document.getElementById('rqQ').addEventListener('input',draw);
+  document.getElementById('rqCancel').onclick=function(){ m.style.display='none'; };
+  document.getElementById('rqGo').onclick=function(){
+    var ids=Object.keys(sel), b=this; if(!ids.length) return; b.disabled=true; b.textContent='Sending…';
+    svc('request',{ids:ids}).then(function(r){
+      b.textContent='Send request';
+      if(!r||!r.ok){ count(); toast(r&&r.error==='token'?'Please sign out and sign in again, then retry':'Could not send the request - please try again'); return; }
+      m.style.display='none'; sel={};
+      toast(r.added?('Request sent for '+r.added+' piece'+(r.added===1?'':'s')+'. You will get an email once it is reviewed.'):'Those pieces are already requested - waiting for review.');
+    }).catch(function(){ b.textContent='Send request'; count(); toast('Could not send the request - please try again'); });
+  };
+  window.openRequest=function(){
+    sel={}; count(); document.getElementById('rqQ').value='';
+    document.getElementById('rqList').innerHTML='<div class="empty">Loading the master list…</div>'; m.style.display='flex';
+    var mine=ensureArchiveRoot().then(readIndex).then(function(idx){ have={}; ((idx&&idx.items)||[]).forEach(function(it){ have[lc(it.title)]=1; }); }).catch(function(){});
+    Promise.all([svc('catalog'),mine]).then(function(a){ var r=a[0];
+      if(!r||!r.ok){ document.getElementById('rqList').innerHTML='<div class="empty">Could not load the master list'+(r&&r.error==='token'?' - please sign out and sign in again.':' - please try again later.')+'</div>'; return; }
+      items=r.items||[]; draw();
+    }).catch(function(){ document.getElementById('rqList').innerHTML='<div class="empty">Could not load the master list - please try again later.</div>'; });
+  };
+
+  var p=document.createElement('div'); p.id='kPick';
+  p.innerHTML='<div class="box"><h3 id="pkH"></h3><p class="sub">Approved by Akka\'s team. Add them to your archive now?</p>'
+   +'<div class="lst" id="pkList"></div><div class="ft"><span class="sp"></span><button class="no" id="pkLater">Later</button><button class="go" id="pkGo">Add to my archive</button></div></div>';
+  document.body.appendChild(p);
+  var ready=[];
+  window.checkApproved=function(){
+    svc('pending').then(function(r){
+      ready=(r&&r.ok&&r.items)||[]; if(!ready.length) return;
+      document.getElementById('pkH').textContent=ready.length+' approved piece'+(ready.length===1?' is':'s are')+' ready';
+      document.getElementById('pkList').innerHTML=ready.map(function(it){ return '<div class="it"><span class="t">'+esc(it.t)+'</span><br><span class="m">'+esc([it.r,it.tl,it.c].filter(Boolean).join(' · '))+'</span></div>'; }).join('');
+      p.style.display='flex';
+    }).catch(function(e){ console.log('pending err',e); });
+  };
+  document.getElementById('pkLater').onclick=function(){ p.style.display='none'; };
+  document.getElementById('pkGo').onclick=function(){
+    var b=this; b.disabled=true; b.textContent='Adding…'; var added=0, had=0;
+    ensureArchiveRoot().then(function(rootId){
+      return readIndex(rootId).then(function(idx){
+        var got={}; ((idx&&idx.items)||[]).forEach(function(it){ got[lc(it.title)]=1; });
+        return ready.reduce(function(chain,it){ return chain.then(function(){
+          if(got[lc(it.t)]||!safeId(it.n)){ had++; return; }
+          got[lc(it.t)]=1;
+          return createBundle(rootId,{type:'piece',title:it.t,raga:it.r||'',tala:it.tl||'',composer:it.c||'',pieceType:it.ty||'',
+            notationUrl:'https://drive.google.com/file/d/'+safeId(it.n)+'/view'}).then(function(bid){ return addToIndex(rootId,bid); }).then(function(){ added++; });
+        }); },Promise.resolve());
+      });
+    }).then(function(){ return svc('delivered',{keys:ready.map(function(it){return it.key;})}); })
+    .then(function(){
+      p.style.display='none'; b.disabled=false; b.textContent='Add to my archive'; _arcIdx=null;
+      toast('Added '+added+' piece'+(added===1?'':'s')+(had?(' · '+had+' already in your archive'):'')+' ✓');
+      var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click();
+    }).catch(function(e){ console.log('pickup err',e); b.disabled=false; b.textContent='Add to my archive'; toast('Something went wrong - nothing lost, try again from the next sign-in'); });
+  };
+})();
 /* ---- Add wizard UI ---- */
 (function(){
   var css=document.createElement('style');
