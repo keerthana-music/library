@@ -59,6 +59,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 #printhead{display:none;text-align:center;margin-bottom:12px}
 #view-landing .landing{background:#fff;border:1px solid var(--line);border-radius:16px;padding:36px 24px;text-align:center;margin-top:10px}
 #view-landing .landing h2{color:var(--maroon);margin:0 0 8px;font-size:22px}
+#view-landing .landing .landmsg{margin:18px auto 0;background:#fdf3e3;border:1px solid #ecd3a9;border-radius:10px;padding:12px 14px;color:#5f4320}
 #view-landing .landing p{color:var(--muted);font-size:14px;max-width:430px;margin:0 auto 18px;line-height:1.5}
 .sitefoot{text-align:center;color:var(--muted);font-size:12px;margin:26px 0 10px}
 .sitefoot a{color:var(--muted)}
@@ -76,7 +77,8 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 <div id="view-landing">
  <div class="landing"><h2>The Keerthana App</h2>
   <p>The repertoire, notations and recordings of Keerthana Music School. Sign in to open your archive and plan concerts.</p>
-  <button class="barbtn primary" onclick="authSignIn()">Sign in with Google</button></div>
+  <button class="barbtn primary" onclick="authSignIn()">Sign in with Google</button>
+  <p id="landMsg" class="landmsg" style="display:none"></p></div>
 </div>
 <div class="sitefoot">Keerthana Music School · <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></div>
 <div id="view-browse" style="display:none">
@@ -297,11 +299,11 @@ badges();
 /* ---- Route B: Google sign-in + own-Drive sync + master/user roles (TEST MODE) ---- */
 const AUTH={
   CLIENT_ID: '338340942516-lju3m0bc9coruem8ia2qa4vi9f1l9900.apps.googleusercontent.com',                                                         /* <-- paste your OAuth Web client ID here */
-  TEACHER_EMAILS: ['prabhakar.ranganathan@gmail.com','uthra78@gmail.com'],                                /* full master: view/share + curate. RP (testing) + Akka. */
-  ADMIN_EMAILS: ['seshadri.anupama@gmail.com','govindpgomatam@gmail.com',
-                 'nagendra2207@gmail.com','eshwari.raj@gmail.com',
-                 'anuradhaparthan2@gmail.com','mahaadhevans@gmail.com',
-                 'remyapnr@gmail.com','parthan.sr@gmail.com'],   /* curate the master (add/import), no teaching affordances. Anu + Gov, then the IT Keerthana team: Nagendra, Rajeshwari, Anuradha, Mahadevan, Remya, Parthan. Everyone else = User; Avvi (aravindgomatam19@gmail.com) and RP's monash.edu are deliberately absent (login-as-user test ids). Matching lowercases both sides, so case here is cosmetic. */
+  /* Members and roles live in the "KeesApp - Registrations" Sheet (ADMIN folder): admins tick
+     Approved and set Role there. MEMBERS_URL is the Apps Script web app inside that Sheet
+     (forms/KeesAppMembers.gs); it checks the sign-in token and answers only {member, role}. */
+  MEMBERS_URL: 'https://script.google.com/macros/s/AKfycbz-7QMhrBgRMHf6yV2HQCjJnAs6RmhnwCnxYES71wEwvQd8WR0p_XluLp-1uS0rmlGJ/exec',
+  REGISTER_URL: 'https://forms.gle/K6grjdbxMZdwx9nAA',
   SCOPES: 'openid email profile https://www.googleapis.com/auth/drive.file',
   LIB_FILE: 'keerthana-library.json',
   PICKER_KEY: 'AIzaSyBkNHClBkhA68Tx3xy3evfdHVThGa8iPA8', /* Google Picker API browser key (referrer-restricted) */
@@ -322,7 +324,7 @@ function roleRank(r){ return r==='teacher'?3:r==='admin'?2:1; }
 function roleLabel(r){ return r==='teacher'?'Teacher':r==='admin'?'Admin':'User'; }
 function onMaster(){ return AS.role==='teacher'||AS.role==='admin'; }
 function setRole(role){
-  AS.role=role;
+  AS.role=role; var lm=document.getElementById('landMsg'); if(lm) lm.style.display='none';
   renderAuthBar(); applyAuthView();
   if(window.toast)toast('Signed in: '+AS.email+' ('+roleLabel(role)+')');
   driveSyncOnLogin();
@@ -375,15 +377,36 @@ function onToken(tok){
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
    .then(function(r){return r.json();}).then(function(u){
      AS.email=u.email||'';
-     var lc=function(x){return x.toLowerCase();}, e=AS.email.toLowerCase();
-     var te=(AUTH.TEACHER_EMAILS||[]).map(lc), ad=(AUTH.ADMIN_EMAILS||[]).map(lc);
-     AS.maxRole = te.indexOf(e)>=0 ? 'teacher' : ad.indexOf(e)>=0 ? 'admin' : 'user';
+     return checkMember(tok).then(function(m){
+     if(!m||!m.ok) throw new Error('members check: '+(m&&m.error));
+     if(!m.member){ notMember(AS.email); return; }
+     AS.maxRole=(m.role==='teacher'||m.role==='admin')?m.role:'user';
      AS.role=null; renderAuthBar();
      var pre=_asOverride();
      if(AS.maxRole==='user') setRole('user');
      else if(pre && roleRank(pre)<=roleRank(AS.maxRole)) setRole(pre);
      else showRoleChooser();
-   }).catch(function(e){console.log('userinfo err',e);});
+     });
+   }).catch(function(e){ console.log('sign-in check err',e); notMember(AS.email,true); });
+}
+/* Members-only: the members service answers for the signed-in account. Not on the list (or the
+   check failed) → back to the landing page with a note; nothing of theirs is loaded. */
+function checkMember(tok){
+  if(!AUTH.MEMBERS_URL) return Promise.reject(new Error('MEMBERS_URL not set'));
+  return fetch(AUTH.MEMBERS_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({token:tok})})
+    .then(function(r){ return r.json(); });
+}
+function notMember(email,failed){
+  AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null;
+  renderAuthBar(); applyAuthView();
+  var el=document.getElementById('landMsg'); if(!el) return;
+  el.innerHTML=failed
+    ? 'We couldn\'t check your membership just now. Please try signing in again in a minute.'
+    : '<b>'+esc(email||'This account')+'</b> isn\'t on the KeesApp members list yet.<br>'
+      +'If you have registered, hang tight: the team adds new members each week. '
+      +'Not registered yet? <a href="'+esc(AUTH.REGISTER_URL)+'" target="_blank" rel="noopener">Register here</a>, '
+      +'using this same Google account.';
+  el.style.display='';
 }
 function renderAuthBar(){
   var bar=document.getElementById('authBar');
