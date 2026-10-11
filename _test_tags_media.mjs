@@ -53,3 +53,18 @@ E(`window.__spec=null; createBundle=function(r,s){ window.__spec=s; return Promi
 await tick();
 ok(w.__spec && JSON.stringify(w.__spec.tags)==='["Sankeerthana","<b>x</b>"]','a shared piece keeps its tags (shown escaped)');
 if(fails) process.exitCode=1; else console.log('ALL TAGS+MEDIA TESTS PASSED');
+/* ---- 2026-10-11 b: notation for audio-only pieces ---- */
+{
+  const dom2=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://keerthana-music.github.io/library/',
+    beforeParse(w){ w.scrollTo=()=>{}; w.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken(){}})}}}; w.fetch=()=>Promise.reject(new Error('stub')); }});
+  const v=dom2.window; await tick(); const V=s=>v.eval(s);
+  V(`AS.token='t'; onMaster=function(){return false;}; _arcRoot='ROOT';
+     _arcIdx={items:[{id:'AUD',title:'pAlise enna',media:[{id:'M1',label:'x'}]},{id:'PDF',title:'Vatapi Ganapatim',notationId:'N1'}]};
+     driveListChildren=function(id){ return Promise.resolve(id==='AUD'?[{name:'bundle.json'},{name:'media',mimeType:'application/vnd.google-apps.folder'}]:[{name:'bundle.json'},{id:'N1',name:'v.pdf',mimeType:'application/pdf'}]); };
+     openEdit('AUD');`);
+  await tick();
+  ok(v.document.getElementById('edReplace').textContent==='Add notation…','Edit: an audio-only piece offers "Add notation…"');
+  V("openEdit('PDF')"); await tick();
+  ok(v.document.getElementById('edReplace').textContent==='Replace notation…','Edit: a piece with a PDF offers "Replace notation…"');
+}
+if(fails) process.exitCode=1; else console.log('ALL NOTATION TESTS PASSED');

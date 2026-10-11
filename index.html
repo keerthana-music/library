@@ -1341,16 +1341,26 @@ function walkImportFolder(folderId,cb){
   }
   document.getElementById('imCancel').onclick=function(){ m.style.display='none'; };
   document.getElementById('imGo').onclick=function(){
-    var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0, dup=0;
-    var idx=onMaster()?_masterIdx:_arcIdx, have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
+    var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0, dup=0, joined=0;
+    var vk=function(t){ return (typeof vKey==='function'?vKey(t||''):String(t||'').toLowerCase()); };
+    var idx=onMaster()?_masterIdx:_arcIdx, have={}, bare={};
+    if(idx&&idx.items) idx.items.forEach(function(it){
+      /* Audio-only pieces (e.g. the Sankeerthana recordings) are waiting for a PDF: a matching one
+         joins the piece instead of being skipped or duplicated. */
+      if(!it.notationId&&!it.notationUrl) bare[vk(it.title)]=it.id; else have[(it.title||'').toLowerCase()]=true; });
     (function next(){
-      if(i>=rows.length){ go.disabled=false; if(onMaster()) _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length+(dup?(' · '+dup+' already present'):'')); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
+      if(i>=rows.length){ go.disabled=false; if(onMaster()) _masterIdx=null; else _arcIdx=null; toast('Imported '+ok+' of '+rows.length+(joined?(' · '+joined+' added to existing pieces'):'')+(dup?(' · '+dup+' already present'):'')); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); return; }
       var r=rows[i], p=r.prop, title=(p.title||(r.file&&r.file.name)||r.name||'');
       if(have[title.toLowerCase()]){ dup++; i++; go.textContent='Skipping duplicate '+i+'/'+rows.length+'…'; return next(); }
       go.textContent='Importing '+(i+1)+'/'+rows.length+'…';
       var done=function(){ have[title.toLowerCase()]=true; ok++; i++; next(); };
       var fail=function(e){ console.log('import row err',e); i++; next(); };
-      if(r.kind==='existing'){
+      var into=(r.kind!=='existing'&&r.file)?bare[vk(title)]:null;
+      if(into){
+        delete bare[vk(title)];
+        replaceNotation(into,_impRoot,{fileId:r.file.id,fileName:r.file.name})
+          .then(function(){ joined++; done(); }).catch(fail);
+      } else if(r.kind==='existing'){
         driveMoveInto(r.folderId,_impRoot).then(function(){ return addToIndex(_impRoot,r.folderId); }).then(done).catch(fail);
       } else {
         var spec={type:'piece',title:title,raga:p.raga,tala:p.tala,composer:p.composer,pieceType:p.pieceType,aro:p.aro,av:p.av,parent:p.parent,fileId:r.file.id,fileName:r.file.name};
@@ -1417,6 +1427,7 @@ window.openEdit=function(fid){
       var f=(files||[]).filter(function(x){ return x.name!=='bundle.json' && x.mimeType!=='application/vnd.google-apps.folder'; });
       nEl.textContent=f.length?f.map(function(x){return x.name;}).join(', ')
         :(it.notationUrl?'linked to a URL, no file in the bundle':'none yet');
+      var rb=document.getElementById('edReplace'); if(rb) rb.textContent=(f.length||it.notationUrl)?'Replace notation…':'Add notation…';
     }).catch(function(){ if(_editId===fid) nEl.textContent='could not read the bundle folder'; });
   }
   document.getElementById('kEdit').style.display='flex';
@@ -1467,6 +1478,7 @@ function replaceNotation(bundleId,rootId,file){
        opens that in preference to anything in the folder — leaving it set would make
        the replacement invisible. */
     meta.notationUrl='';
+    if(meta.meta) delete meta.meta.notation;   /* "none" no longer true */
     meta.updated=new Date().toISOString();
     return driveUpdateBundleJson(bundleId,meta);
   })
@@ -1478,8 +1490,9 @@ function _editReplace(){
   var id=_editId, btn=document.getElementById('edReplace');
   openPicker(function(p){
     if(!p||!p.fileId) return;
-    if(!window.confirm('Replace the notation with “'+p.fileName+'”?\nWhatever it replaces is moved to “'+AUTH.TRASH_NAME+'”, not deleted.')) return;
-    btn.disabled=true; btn.textContent='Replacing…';
+    var adding=btn.textContent.indexOf('Add')===0;
+    if(!window.confirm(adding?('Add “'+p.fileName+'” as the notation for this piece?'):('Replace the notation with “'+p.fileName+'”?\nWhatever it replaces is moved to “'+AUTH.TRASH_NAME+'”, not deleted.'))) return;
+    btn.disabled=true; btn.textContent=adding?'Adding…':'Replacing…';
     replaceNotation(id,root,p).then(function(oldNames){
       _masterIdx=null; _arcIdx=null;
       btn.disabled=false; btn.textContent='Replace notation…';
