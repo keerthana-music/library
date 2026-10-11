@@ -202,6 +202,13 @@ let sh=JSON.parse(localStorage.getItem(LS.sh)||'{}');
 let favOnly=false;
 const save=()=>{localStorage.setItem(LS.star,JSON.stringify([...star]));localStorage.setItem(LS.con,JSON.stringify(con));localStorage.setItem(LS.sh,JSON.stringify(sh));if(window.__sync)window.__sync();};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* Security helpers (2026-10-11). jsq: a value as a JS string literal, safe inside a
+   double-quoted onclick="…" (JSON escapes quotes and backslashes, esc makes it attribute-safe).
+   safeUrl: only plain https links survive, so a shared or stored "javascript:" link can't run.
+   safeId: Drive ids are letters, digits, - and _ only. */
+const jsq=s=>esc(JSON.stringify(String(s==null?'':s)));
+const safeUrl=u=>{u=String(u||'').trim();return /^https:\/\/[^\s"'<>\\]+$/i.test(u)?u:'';};
+const safeId=s=>/^[A-Za-z0-9_-]+$/.test(String(s||''))?String(s):'';
 /* `imported{}` and its kms_imp key went with the ?add= handler — written by that
    handler, read by nothing. Drop the stale key so it stops riding along in the
    Drive sync payload of anyone who ever followed one of those links. */
@@ -220,8 +227,8 @@ function rCon(){if(!con.length){conList.innerHTML='<div class="empty">Concert is
  conList.innerHTML=con.map((k,i)=>{const r=_conRow(k);
   return `<div class="citem"><div class="cnum">${i+1}</div><div class="cinfo">
    <div class="p">${esc(r.Piece)}</div><div class="m">${[r.Raga,r.Tala,r.Type,r.Composer].filter(Boolean).map(esc).join(' · ')}</div>
-   <label style="font-size:11px;color:#8a7d70">Shruthi <input value="${esc(sh[k]||'')}" onchange="setSh('${esc(k)}',this.value)" placeholder="e.g. G#"></label></div>
-   ${r.notationUrl?`<a class="iconbtn" href="${esc(r.notationUrl)}" target="_blank" rel="noopener" title="Open notation">📄</a>`:`<span class="iconbtn dis" title="No notation linked">📄</span>`}
+   <label style="font-size:11px;color:#8a7d70">Shruthi <input value="${esc(sh[k]||'')}" onchange="setSh(${jsq(k)},this.value)" placeholder="e.g. G#"></label></div>
+   ${safeUrl(r.notationUrl)?`<a class="iconbtn" href="${esc(safeUrl(r.notationUrl))}" target="_blank" rel="noopener" title="Open notation">📄</a>`:`<span class="iconbtn dis" title="No notation linked">📄</span>`}
    <div class="move"><button onclick="mv(${i},-1)">▲</button><button onclick="mv(${i},1)">▼</button></div>
    <button class="crm" onclick="rm(${i})">×</button></div>`;}).join('');
  pbody.innerHTML=con.map((k,i)=>{const r=_conRow(k);
@@ -325,7 +332,11 @@ function setRole(role){
    copy) in the recipient's PERSONAL archive, skipping titles already there. */
 var _pendingImport=null;
 function processImport(payload){
-  if(!payload||(!payload.t&&!payload.n)) return;
+  /* A share link is text anyone can craft: keep only short plain strings, and only an https notation link. */
+  if(!payload||typeof payload!=='object') return;
+  var S=function(v,n){ return typeof v==='string'?v.trim().slice(0,n):''; };
+  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000))};
+  if(!payload.t&&!payload.n) return;
   ensureArchiveRoot().then(function(rootId){
     return readIndex(rootId).then(function(idx){
       var have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
@@ -488,8 +499,8 @@ function addToIndex(rootId,topId){ return Promise.all([readIndex(rootId),scanBun
   var idx=a[0]||{items:[]}, tree=a[1]; if(!tree) return idx;
   var item=_indexItem(tree); var items=(idx.items||[]).filter(function(x){return x.id!==item.id;}); items.push(item);
   return writeIndex(rootId,items); }); }
-function _indexNotation(nid){ return nid?'<a class="iconbtn" href="https://drive.google.com/file/d/'+nid+'/view" target="_blank" rel="noopener" title="Open">📄</a>':''; }
-function _indexNotation2(it){ var u=(it&&it.notationUrl)||((it&&it.notationId)?('https://drive.google.com/file/d/'+it.notationId+'/view'):''); return u?'<a class="iconbtn" href="'+esc(u)+'" target="_blank" rel="noopener" title="Open">📄</a>':''; }
+function _indexNotation(nid){ nid=safeId(nid); return nid?'<a class="iconbtn" href="https://drive.google.com/file/d/'+nid+'/view" target="_blank" rel="noopener" title="Open">📄</a>':''; }
+function _indexNotation2(it){ var nid=safeId(it&&it.notationId); var u=safeUrl(it&&it.notationUrl)||(nid?('https://drive.google.com/file/d/'+nid+'/view'):''); return u?'<a class="iconbtn" href="'+esc(u)+'" target="_blank" rel="noopener" title="Open">📄</a>':''; }
 function _indexCard(it){
   var fid=it.id, title=it.title||'(untitled)', st=star.has(fid), inc=con.includes(title), tq=esc(title).replace(/'/g,"\\'");
   var chips=(it.raga?'<span class="chip raga">'+esc(it.raga)+'</span>':'')+(it.tala?'<span class="chip">'+esc(it.tala)+'</span>':'')+(it.type&&it.type!=='piece'?'<span class="chip type">'+esc(it.type)+'</span>':'');
@@ -497,16 +508,16 @@ function _indexCard(it){
   var kids=(it.children||[]).map(function(c){ return '<div class="subitem">'+_childIcon(c.type)+' <span>'+esc(c.label||c.type)+'</span>'+_indexNotation(c.notationId)+'</div>'; }).join('');
   return '<div class="card"><div class="main"><div class="piece">'+esc(title)+'</div><div class="meta">'+chips+'</div>'+comp+(kids?'<div class="subs">'+kids+'</div>':'')+'</div>'
     +'<div class="acts">'
-    +'<button class="iconbtn share" title="Share" onclick="shareBundle(\''+esc(fid)+'\')">↗</button>'
-    +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId(\''+esc(fid)+'\')">'+(st?'★':'☆')+'</button>'
-    +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle(\''+tq+'\')">'+(inc?'✓':'＋')+'</button>'
-    +'<button class="iconbtn" title="Edit / remove" onclick="openEdit(\''+esc(fid)+'\')">✎</button>'
+    +'<button class="iconbtn share" title="Share" onclick="shareBundle('+jsq(fid)+')">↗</button>'
+    +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId('+jsq(fid)+')">'+(st?'★':'☆')+'</button>'
+    +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle('+jsq(title)+')">'+(inc?'✓':'＋')+'</button>'
+    +'<button class="iconbtn" title="Edit / remove" onclick="openEdit('+jsq(fid)+')">✎</button>'
     +_indexNotation2(it)+'</div></div>';
 }
-function _driveView(id){ return 'https://drive.google.com/file/d/'+id+'/view'; }
+function _driveView(id){ return 'https://drive.google.com/file/d/'+safeId(id)+'/view'; }
 function _notationLink(tree){
   var f=(tree.files||[]).filter(function(x){return x.name!=='bundle.json'&&x.mimeType!=='application/vnd.google-apps.folder';})[0];
-  return f?'<a class="iconbtn" href="'+_driveView(f.id)+'" target="_blank" rel="noopener" title="Open">📄</a>':'';
+  return (f&&safeId(f.id))?'<a class="iconbtn" href="'+_driveView(f.id)+'" target="_blank" rel="noopener" title="Open">📄</a>':'';
 }
 function _childIcon(t){ return t==='audio'?'🎵':t==='note'?'📝':t==='link'?'🔗':t==='piece'?'📄':'📎'; }
 function _bundleCard(tree){
@@ -522,9 +533,9 @@ function _bundleCard(tree){
     +'<div class="meta">'+chips+'</div>'+comp
     +(kids?'<div class="subs">'+kids+'</div>':'')+'</div>'
     +'<div class="acts">'
-    +'<button class="iconbtn share" title="Share" onclick="shareBundle(\''+esc(fid)+'\')">↗</button>'
-    +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId(\''+esc(fid)+'\')">'+(st?'★':'☆')+'</button>'
-    +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle(\''+tq+'\')">'+(inc?'✓':'＋')+'</button>'
+    +'<button class="iconbtn share" title="Share" onclick="shareBundle('+jsq(fid)+')">↗</button>'
+    +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId('+jsq(fid)+')">'+(st?'★':'☆')+'</button>'
+    +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle('+jsq(title)+')">'+(inc?'✓':'＋')+'</button>'
     +_notationLink(tree)+'</div></div>';
 }
 /* User Archive: cache the index once, derive Raga/Type/Composer filters from the user's own
