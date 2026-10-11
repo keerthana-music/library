@@ -27,6 +27,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 .card .main{flex:1;min-width:0}.piece{font-size:16px;font-weight:650;line-height:1.25}
 .meta{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
 .chip{background:var(--chip);border-radius:999px;padding:2px 9px;font-size:12px;color:#6b5330;white-space:nowrap}
+.piece .plink{color:inherit;font:inherit;text-decoration:none;background:none;border:0;padding:0;cursor:pointer;text-align:left}.piece .plink:hover,.piece .plink:focus-visible{text-decoration:underline;text-decoration-color:#d98324;text-underline-offset:3px}
 .chip.raga{background:#eddfce;color:var(--maroon);font-weight:600}.chip.tag{background:#fdf0dc;color:#9a5a12;border:1px solid #f0d3a6}details.media{margin-top:6px;font-size:13px}details.media summary{cursor:pointer;color:var(--maroon);font-weight:600;list-style:none;padding:4px 0}details.media summary::-webkit-details-marker{display:none}details.media a{display:flex;gap:6px;align-items:center;padding:7px 8px;margin:2px 0;border-radius:8px;background:#faf5ec;color:#2a221c;text-decoration:none}details.media a:hover{background:#f3e9d6}.chip.type{background:#e6efe9;color:var(--ok)}
 .composer{font-size:12.5px;color:var(--muted);margin-top:5px}
 .scale{font-size:11px;color:#a08b6f;margin-top:4px;font-family:ui-monospace,Menlo,monospace}
@@ -552,7 +553,11 @@ function _indexCard(it){
     +cleanTags(it.tags).map(function(t){ return '<span class="chip tag">#'+esc(t)+'</span>'; }).join('');
   var comp=(it.composer?'<div class="composer">'+esc(it.composer)+'</div>':'')+_mediaBlock(it.media);
   var kids=(it.children||[]).map(function(c){ return '<div class="subitem">'+_childIcon(c.type)+' <span>'+esc(c.label||c.type)+'</span>'+_indexNotation(c.notationId)+'</div>'; }).join('');
-  return '<div class="card"><div class="main"><div class="piece">'+esc(title)+'</div><div class="meta">'+chips+'</div>'+comp+(kids?'<div class="subs">'+kids+'</div>':'')+'</div>'
+  /* Tapping the name opens the notation (IT-group wishlist); an audio-only piece opens its recordings list. */
+  var nid=safeId(it.notationId), nurl=safeUrl(it.notationUrl)||(nid?('https://drive.google.com/file/d/'+nid+'/view'):'');
+  var tname=nurl?'<a class="plink" href="'+esc(nurl)+'" target="_blank" rel="noopener" title="Open the notation">'+esc(title)+'</a>'
+    :(cleanMedia(it.media).length?'<button type="button" class="plink" title="Show the recordings" onclick="var d=this.closest(\'.card\').querySelector(\'details.media\'); if(d) d.open=!d.open;">'+esc(title)+'</button>':esc(title));
+  return '<div class="card"><div class="main"><div class="piece">'+tname+'</div><div class="meta">'+chips+'</div>'+comp+(kids?'<div class="subs">'+kids+'</div>':'')+'</div>'
     +'<div class="acts">'
     +'<button class="iconbtn share" title="Share" onclick="shareBundle('+jsq(fid)+')">↗</button>'
     +'<button class="iconbtn '+(st?'on':'')+'" title="Favourite" onclick="tStarId('+jsq(fid)+')">'+(st?'★':'☆')+'</button>'

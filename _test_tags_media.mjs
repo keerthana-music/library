@@ -68,3 +68,20 @@ if(fails) process.exitCode=1; else console.log('ALL TAGS+MEDIA TESTS PASSED');
   ok(v.document.getElementById('edReplace').textContent==='Replace notation…','Edit: a piece with a PDF offers "Replace notation…"');
 }
 if(fails) process.exitCode=1; else console.log('ALL NOTATION TESTS PASSED');
+/* ---- tap the name ---- */
+{
+  const dom3=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://keerthana-music.github.io/library/',
+    beforeParse(w){ w.scrollTo=()=>{}; w.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken(){}})}}}; w.fetch=()=>Promise.reject(new Error('stub')); }});
+  const v=dom3.window; await tick();
+  const card=it=>{ v.__it=it; const d=v.document.createElement('div'); d.innerHTML=v.eval('_indexCard(__it)'); v.document.body.appendChild(d); return d; };
+  let d=card({id:'A',title:'Vatapi',notationId:'N1'});
+  ok(d.querySelector('.piece a.plink').href==='https://drive.google.com/file/d/N1/view','tapping the name opens the PDF');
+  d=card({id:'B',title:'Shared',notationUrl:'javascript:alert(1)'});
+  ok(!d.querySelector('.piece a'),'a bad link is never put on the name');
+  d=card({id:'C',title:'Bhajan',media:[{id:'M1',label:'Akka'}]});
+  const b=d.querySelector('.piece button.plink'); b.click();
+  ok(d.querySelector('details.media').open===true,'an audio-only piece: tapping the name opens its recordings');
+  d=card({id:'D',title:"It's <b>x</b>"});
+  ok(!d.querySelector('.piece b') && d.querySelector('.piece').textContent==="It's <b>x</b>",'a name with nothing to open stays plain text');
+}
+if(fails) process.exitCode=1; else console.log('ALL NAME-TAP TESTS PASSED');
