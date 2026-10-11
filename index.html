@@ -27,7 +27,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
 .card .main{flex:1;min-width:0}.piece{font-size:16px;font-weight:650;line-height:1.25}
 .meta{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
 .chip{background:var(--chip);border-radius:999px;padding:2px 9px;font-size:12px;color:#6b5330;white-space:nowrap}
-.chip.raga{background:#eddfce;color:var(--maroon);font-weight:600}.chip.type{background:#e6efe9;color:var(--ok)}
+.chip.raga{background:#eddfce;color:var(--maroon);font-weight:600}.chip.tag{background:#fdf0dc;color:#9a5a12;border:1px solid #f0d3a6}details.media{margin-top:6px;font-size:13px}details.media summary{cursor:pointer;color:var(--maroon);font-weight:600;list-style:none;padding:4px 0}details.media summary::-webkit-details-marker{display:none}details.media a{display:flex;gap:6px;align-items:center;padding:7px 8px;margin:2px 0;border-radius:8px;background:#faf5ec;color:#2a221c;text-decoration:none}details.media a:hover{background:#f3e9d6}.chip.type{background:#e6efe9;color:var(--ok)}
 .composer{font-size:12.5px;color:var(--muted);margin-top:5px}
 .scale{font-size:11px;color:#a08b6f;margin-top:4px;font-family:ui-monospace,Menlo,monospace}
 .subs{margin-top:8px;border-top:1px dashed var(--line);padding-top:6px;display:flex;flex-direction:column;gap:5px}
@@ -88,6 +88,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
   <select id="fTala"><option value="">All talas</option></select>
   <select id="fType"><option value="">All types</option></select>
   <select id="fComposer"><option value="">All composers</option></select>
+  <select id="fTag"><option value="">All tags</option></select>
   <button id="favBtn" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button>
  </div>
  <div class="count" id="count"></div>
@@ -103,7 +104,7 @@ header h1{margin:0;font-size:20px;font-weight:700}header .sub{opacity:.85;font-s
  <div id="conList"></div>
 </div>
 <div id="view-archive" style="display:none">
- <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTalaA"><option value="">All talas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button><button id="arcRebuild" class="barbtn ghost" style="padding:9px 12px;font-weight:600" title="Rebuild the index by rescanning your archive folder in Drive" onclick="rebuildArchive()">↻</button></div>
+ <div class="controls"><input id="qArc" placeholder="Search your archive…"><select id="fRagaA"><option value="">All ragas</option></select><select id="fTalaA"><option value="">All talas</option></select><select id="fTypeA"><option value="">All types</option></select><select id="fComposerA"><option value="">All composers</option></select><select id="fTagA"><option value="">All tags</option></select><button id="favBtnA" class="barbtn ghost" style="padding:9px 12px;font-weight:600" onclick="toggleFav()">★ Favourites</button><button id="arcRebuild" class="barbtn ghost" style="padding:9px 12px;font-weight:600" title="Rebuild the index by rescanning your archive folder in Drive" onclick="rebuildArchive()">↻</button></div>
  <div class="note">Your own archive in Drive — notation, audio, notes you Add appear here.</div>
  <div id="arcList"></div>
 </div>
@@ -211,6 +212,13 @@ const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"
 const jsq=s=>esc(JSON.stringify(String(s==null?'':s)));
 const safeUrl=u=>{u=String(u||'').trim();return /^https:\/\/[^\s"'<>\\]+$/i.test(u)?u:'';};
 const safeId=s=>/^[A-Za-z0-9_-]+$/.test(String(s||''))?String(s):'';
+/* Tags (2026-10-11): short free-text labels on a piece, e.g. "Sankeerthana". Stored in
+   bundle.json meta.tags; travel with shares and requests; anyone can edit their own. */
+const cleanTags=a=>{ var out=[],seen={}; (Array.isArray(a)?a:String(a||'').split(',')).forEach(function(t){ t=String(t||'').trim().replace(/^#+/,'').replace(/\s+/g,' ').trim().slice(0,40); var k=t.toLowerCase(); if(t&&!seen[k]&&out.length<12){ seen[k]=1; out.push(t); } }); return out; };
+const MEDIA_TYPES={audio:1,media:1,video:1};
+/* Media references (a piece received from MASTER points at master files rather than copying them). */
+const cleanMedia=a=>(Array.isArray(a)?a:[]).filter(function(x){ return x&&safeId(x.id); }).slice(0,50)
+  .map(function(x){ return {id:safeId(x.id),label:String(x.label||'').slice(0,80),mime:String(x.mime||'').slice(0,60)}; });
 /* `imported{}` and its kms_imp key went with the ?add= handler — written by that
    handler, read by nothing. Drop the stale key so it stops riding along in the
    Drive sync payload of anyone who ever followed one of those links. */
@@ -258,7 +266,7 @@ function shareBundle(fid){
   if(!it){ return _shareLink('The Keerthana App','https://drive.google.com/drive/folders/'+fid); }
   var nurl=it.notationUrl||(it.notationId?('https://drive.google.com/file/d/'+it.notationId+'/view'):'');
   if(it.notationId){ try{ driveMakePublic(it.notationId); }catch(e){} }
-  var payload={t:it.title||'',r:it.raga||'',tl:it.tala||'',c:it.composer||'',ty:it.pieceType||'',n:nurl};
+  var payload={t:it.title||'',r:it.raga||'',tl:it.tala||'',c:it.composer||'',ty:it.pieceType||'',n:nurl,tg:cleanTags(it.tags)};
   _shareLink(it.title||'piece', location.origin+location.pathname+'?import='+_b64(payload));
 }
 function rm(i){con.splice(i,1);save();badges();rCon();reRender();}
@@ -272,9 +280,9 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.que
  var vr=document.getElementById('view-resources');if(vr)vr.style.display=t=='resources'?'':'none';
  if(t=='archive'){isMaster?rMaster():rArchive();}
  if(t=='concert')rCon();if(t=='resources')rResources();});
-['q','fRaga','fTala','fType','fComposer'].forEach(id=>document.getElementById(id).addEventListener('input',rMaster));
+['q','fRaga','fTala','fType','fComposer','fTag'].forEach(id=>document.getElementById(id).addEventListener('input',rMaster));
 var _qa=document.getElementById('qArc');if(_qa)_qa.addEventListener('input',rArchive);
-['fRagaA','fTalaA','fTypeA','fComposerA'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',rArchive);});
+['fRagaA','fTalaA','fTypeA','fComposerA','fTagA'].forEach(function(id){var e=document.getElementById(id);if(e)e.addEventListener('change',rArchive);});
 clearCon.onclick=()=>{if(confirm('Clear the whole concert order?')){con=[];save();badges();rCon();}};
 printdate.textContent=new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
 window.view_browse=document.getElementById('view-browse');window.view_concert=document.getElementById('view-concert');
@@ -338,13 +346,13 @@ function processImport(payload){
   /* A share link is text anyone can craft: keep only short plain strings, and only an https notation link. */
   if(!payload||typeof payload!=='object') return;
   var S=function(v,n){ return typeof v==='string'?v.trim().slice(0,n):''; };
-  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000))};
+  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000)),tg:cleanTags(payload.tg)};
   if(!payload.t&&!payload.n) return;
   ensureArchiveRoot().then(function(rootId){
     return readIndex(rootId).then(function(idx){
       var have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
       if(payload.t && have[payload.t.toLowerCase()]){ if(window.toast)toast('“'+payload.t+'” is already in your archive'); return; }
-      var spec={type:'piece',title:payload.t||'shared piece',raga:payload.r||'',tala:payload.tl||'',composer:payload.c||'',pieceType:payload.ty||'',notationUrl:payload.n||''};
+      var spec={type:'piece',title:payload.t||'shared piece',raga:payload.r||'',tala:payload.tl||'',composer:payload.c||'',pieceType:payload.ty||'',notationUrl:payload.n||'',tags:payload.tg};
       return createBundle(rootId,spec).then(function(topId){ return addToIndex(rootId,topId); }).then(function(){ _arcIdx=null; if(window.toast)toast('Added “'+(payload.t||'piece')+'” to your archive ✓'); if(AS.role==='user'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } });
     });
   }).catch(function(e){ console.log('import err',e); if(window.toast)toast('Could not import the shared piece'); });
@@ -497,9 +505,20 @@ function _notationFileId(tree){
   var f=pdf||real[0];
   return f?f.id:'';
 }
+/* Every playable file in a piece: files in its media / audio / video child bundles (any number),
+   plus media references carried by a piece received from MASTER (meta.mediaLinks). */
+function _mediaLabel(name){ return String(name||'').replace(/\.[^.]+$/,'').replace(/[_]+/g,' ').trim(); }
+function _mediaOf(tree){
+  var out=[], m=tree.meta||{};
+  (tree.children||[]).forEach(function(c){ if(!MEDIA_TYPES[c.type]) return; var cm=c.meta||{}, labels=(cm.meta&&cm.meta.labels)||cm.labels||{};
+    (c.files||[]).forEach(function(f){ if(f.name==='bundle.json'||f.mimeType==='application/vnd.google-apps.folder'||f.name.charAt(0)==='.') return;
+      out.push({id:f.id,label:labels[f.name]||_mediaLabel(f.name),mime:f.mimeType||''}); }); });
+  return out.concat(cleanMedia(m.mediaLinks));
+}
 function _indexItem(tree){ var m=tree.meta||{},mm=m.meta||{};
   return {id:tree.folderId,type:m.type||'piece',title:m.title||'',raga:mm.raga||'',tala:mm.tala||'',composer:mm.composer||'',pieceType:mm.pieceType||'',aro:mm.aro||'',av:mm.av||'',parent:mm.parent||'',notationId:_notationFileId(tree),notationUrl:m.notationUrl||'',
-    children:(tree.children||[]).map(function(c){var cm=c.meta||{};return {id:c.folderId,type:c.type,label:cm.label||cm.title||c.type,notationId:_notationFileId(c)};})};
+    tags:cleanTags(mm.tags), media:_mediaOf(tree),
+    children:(tree.children||[]).filter(function(c){ return !MEDIA_TYPES[c.type]; }).map(function(c){var cm=c.meta||{};return {id:c.folderId,type:c.type,label:cm.label||cm.title||c.type,notationId:_notationFileId(c)};})};
 }
 function buildIndexItems(rootId){
   return driveListChildren(rootId).then(function(files){
@@ -529,8 +548,9 @@ function _indexNotation(nid){ nid=safeId(nid); return nid?'<a class="iconbtn" hr
 function _indexNotation2(it){ var nid=safeId(it&&it.notationId); var u=safeUrl(it&&it.notationUrl)||(nid?('https://drive.google.com/file/d/'+nid+'/view'):''); return u?'<a class="iconbtn" href="'+esc(u)+'" target="_blank" rel="noopener" title="Open">📄</a>':''; }
 function _indexCard(it){
   var fid=it.id, title=it.title||'(untitled)', st=star.has(fid), inc=con.includes(title), tq=esc(title).replace(/'/g,"\\'");
-  var chips=(it.raga?'<span class="chip raga">'+esc(it.raga)+'</span>':'')+(it.tala?'<span class="chip">'+esc(it.tala)+'</span>':'')+(it.type&&it.type!=='piece'?'<span class="chip type">'+esc(it.type)+'</span>':'');
-  var comp=it.composer?'<div class="composer">'+esc(it.composer)+'</div>':'';
+  var chips=(it.raga?'<span class="chip raga">'+esc(it.raga)+'</span>':'')+(it.tala?'<span class="chip">'+esc(it.tala)+'</span>':'')+(it.type&&it.type!=='piece'?'<span class="chip type">'+esc(it.type)+'</span>':'')
+    +cleanTags(it.tags).map(function(t){ return '<span class="chip tag">#'+esc(t)+'</span>'; }).join('');
+  var comp=(it.composer?'<div class="composer">'+esc(it.composer)+'</div>':'')+_mediaBlock(it.media);
   var kids=(it.children||[]).map(function(c){ return '<div class="subitem">'+_childIcon(c.type)+' <span>'+esc(c.label||c.type)+'</span>'+_indexNotation(c.notationId)+'</div>'; }).join('');
   return '<div class="card"><div class="main"><div class="piece">'+esc(title)+'</div><div class="meta">'+chips+'</div>'+comp+(kids?'<div class="subs">'+kids+'</div>':'')+'</div>'
     +'<div class="acts">'
@@ -539,6 +559,12 @@ function _indexCard(it){
     +'<button class="iconbtn add" title="'+(inc?'In concert':'Add to concert')+'" onclick="aConTitle('+jsq(title)+')">'+(inc?'✓':'＋')+'</button>'
     +'<button class="iconbtn" title="Edit / remove" onclick="openEdit('+jsq(fid)+')">✎</button>'
     +_indexNotation2(it)+'</div></div>';
+}
+function _mediaBlock(list){
+  list=cleanMedia(list); if(!list.length) return '';
+  var vid=function(x){ return /^video\//.test(x.mime); };
+  return '<details class="media"><summary>'+(list.every(vid)?'🎬':'🎵')+' Media ('+list.length+')</summary>'
+    +list.map(function(x){ return '<a href="https://drive.google.com/file/d/'+x.id+'/view" target="_blank" rel="noopener">'+(vid(x)?'🎬':'🎵')+' <span>'+esc(x.label||'Recording')+'</span></a>'; }).join('')+'</details>';
 }
 function _driveView(id){ return 'https://drive.google.com/file/d/'+safeId(id)+'/view'; }
 function _notationLink(tree){
@@ -572,6 +598,7 @@ function buildArchiveFilters(items){
   _fillSel('fTalaA','All talas',_uniq(items.map(function(i){return i.tala;})));
   _fillSel('fTypeA','All types',_uniq(items.map(function(i){return i.pieceType;})));
   _fillSel('fComposerA','All composers',_uniq(items.map(function(i){return i.composer;})));
+  _fillSel('fTagA','All tags',_tagsOf(items));
 }
 function loadArchive(cb){
   if(_arcIdx) return cb(_arcIdx);
@@ -599,14 +626,15 @@ function rArchive(){
     if(!idx){ host.innerHTML='<div class="empty">Could not load your archive — see console.</div>'; return; }
     var items=(idx&&idx.items)||[];
     var q=((document.getElementById('qArc')||{}).value||'').trim().toLowerCase();
-    var fr=((document.getElementById('fRagaA')||{}).value)||'', fta=((document.getElementById('fTalaA')||{}).value)||'', ft=((document.getElementById('fTypeA')||{}).value)||'', fc=((document.getElementById('fComposerA')||{}).value)||'';
+    var fr=((document.getElementById('fRagaA')||{}).value)||'', fta=((document.getElementById('fTalaA')||{}).value)||'', ft=((document.getElementById('fTypeA')||{}).value)||'', fc=((document.getElementById('fComposerA')||{}).value)||'', fg=((document.getElementById('fTagA')||{}).value)||'';
     var out=items.filter(function(it){
       if(fr&&it.raga!==fr)return false;
       if(fta&&it.tala!==fta)return false;
       if(ft&&it.pieceType!==ft)return false;
       if(fc&&it.composer!==fc)return false;
+      if(fg&&cleanTags(it.tags).indexOf(fg)<0)return false;
       if(favOnly&&!star.has(it.id))return false;
-      if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0);
+      if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')+' '+cleanTags(it.tags).join(' ')).toLowerCase().indexOf(q)>=0);
       return true;
     });
     out.sort(function(a,b){return (a.title||'').toLowerCase().localeCompare((b.title||'').toLowerCase());});
@@ -623,9 +651,10 @@ function rResources(){
 }
 /* ---- Master Archive (Admin): read master-index.json from the granted master folder. Retires the spreadsheet for display. ---- */
 var _masterIdx=null,_masterRoot=null;
+function _tagsOf(items){ var all=[]; items.forEach(function(i){ all=all.concat(cleanTags(i.tags)); }); return _uniq(all); }
 function _uniq(a){ return [...new Set(a.filter(Boolean))].sort(function(x,y){return x.toLowerCase().localeCompare(y.toLowerCase());}); }
 function _fillSel(id,all,vals){ var s=document.getElementById(id); if(!s)return; var cur=s.value; s.innerHTML='<option value="">'+all+'</option>'; vals.forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o);}); s.value=cur; }
-function buildMasterFilters(items){ _fillSel('fRaga','All ragas',_uniq(items.map(function(i){return i.raga;}))); _fillSel('fTala','All talas',_uniq(items.map(function(i){return i.tala;}))); _fillSel('fType','All types',_uniq(items.map(function(i){return i.pieceType;}))); _fillSel('fComposer','All composers',_uniq(items.map(function(i){return i.composer;}))); }
+function buildMasterFilters(items){ _fillSel('fRaga','All ragas',_uniq(items.map(function(i){return i.raga;}))); _fillSel('fTala','All talas',_uniq(items.map(function(i){return i.tala;}))); _fillSel('fType','All types',_uniq(items.map(function(i){return i.pieceType;}))); _fillSel('fComposer','All composers',_uniq(items.map(function(i){return i.composer;}))); _fillSel('fTag','All tags',_tagsOf(items)); }
 /* Admin/Teacher elevate to full drive scope on demand (incremental auth), so the app can read
    and write the master (a folder they don't own / didn't create). Users never call this — they
    stay on drive.file. Requesting `drive` supersedes drive.file, so AS.token stays valid for
@@ -672,8 +701,8 @@ function rMaster(){
   loadMaster(function(idx,err){
     if(!idx){ host.innerHTML='<div class="empty">'+(err==='scope'?'Admin/Teacher mode needs Google Drive permission — reload and approve the Drive access prompt, or click ⌂ Master folder.':'Pick the master folder to view it.')+'</div>'; return; }
     var items=idx.items||[];
-    var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, fta=fTala.value, ft=fType.value, fc=fComposer.value;
-    var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(fta&&it.tala!==fta)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')).toLowerCase().indexOf(q)>=0); return 1; });
+    var q=(document.getElementById('q').value||'').trim().toLowerCase(), fr=fRaga.value, fta=fTala.value, ft=fType.value, fc=fComposer.value, fg=((document.getElementById('fTag')||{}).value)||'';
+    var out=items.filter(function(it){ if(fr&&it.raga!==fr)return 0; if(fta&&it.tala!==fta)return 0; if(ft&&it.pieceType!==ft)return 0; if(fc&&it.composer!==fc)return 0; if(fg&&cleanTags(it.tags).indexOf(fg)<0)return 0; if(favOnly&&!star.has(it.id))return 0; if(q) return (((it.title||'')+' '+(it.raga||'')+' '+(it.composer||'')+' '+(it.pieceType||'')+' '+cleanTags(it.tags).join(' ')).toLowerCase().indexOf(q)>=0); return 1; });
     out.sort(function(a,b){return (a.title||'').toLowerCase().localeCompare((b.title||'').toLowerCase());});
     document.getElementById('count').textContent=out.length+' of '+items.length+' pieces';
     if(out.length){ host.innerHTML=out.map(_indexCard).join(''); }
@@ -814,9 +843,25 @@ function createBundle(rootId,spec){
   if(spec.type==='piece'){
     return driveEnsureFolder(pieceFolderName(spec.title,spec.raga),rootId).then(function(bid){
       var meta={schema:'kms-bundle/1',type:'piece',title:spec.title,id:bid,label:'',notationUrl:spec.notationUrl||'',
-        meta:{raga:spec.raga||'',tala:spec.tala||'',composer:spec.composer||'',pieceType:spec.pieceType||'',remarks:'',aro:spec.aro||'',av:spec.av||'',parent:spec.parent||''},
+        meta:{raga:spec.raga||'',tala:spec.tala||'',composer:spec.composer||'',pieceType:spec.pieceType||'',remarks:'',aro:spec.aro||'',av:spec.av||'',parent:spec.parent||'',tags:cleanTags(spec.tags)},
+        mediaLinks:cleanMedia(spec.mediaLinks),
         files:spec.fileName?[spec.fileName]:[],items:[],updated:new Date().toISOString()};
       return (spec.fileId?driveMoveInto(spec.fileId,bid).then(function(){return driveMakePublic(spec.fileId).catch(function(){});}):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,bid);}).then(function(){return bid;});
+    });
+  }
+  /* Audio and video go into the piece's one "media" folder, which holds any number of
+     recordings; spec.title becomes the recording's label. */
+  if(spec.type==='audio'||spec.type==='video'){
+    return driveEnsureFolder(pieceFolderName(spec.parentTitle,spec.parentRaga),rootId).then(function(pid){
+      return driveEnsureFolder('media',pid).then(function(mid){
+        return (spec.fileId?driveMoveInto(spec.fileId,mid):Promise.resolve()).then(function(){ return readBundle(mid); }).then(function(b){
+          var meta=(b&&b.meta)||{schema:'kms-bundle/1',type:'media',title:'Media',id:mid,label:'Media',meta:{labels:{}},files:[],items:[]};
+          meta.type='media'; meta.meta=meta.meta||{}; meta.meta.labels=meta.meta.labels||{}; meta.files=meta.files||[];
+          if(spec.fileName){ if(meta.files.indexOf(spec.fileName)<0) meta.files.push(spec.fileName); meta.meta.labels[spec.fileName]=String(spec.title||'').slice(0,80); }
+          meta.updated=new Date().toISOString();
+          return driveUpdateBundleJson(mid,meta);
+        }).then(function(){ return pid; });
+      });
     });
   }
   return driveEnsureFolder(pieceFolderName(spec.parentTitle,spec.parentRaga),rootId).then(function(pid){
@@ -861,11 +906,11 @@ function createBundle(rootId,spec){
   function count(){ var n=Object.keys(sel).length; document.getElementById('rqN').textContent=n?(n+' selected'):'None selected'; document.getElementById('rqGo').disabled=!n; }
   function draw(){
     var q=key(document.getElementById('rqQ').value), host=document.getElementById('rqList');
-    var out=items.filter(function(it){ return !q||key(it.t+' '+it.r+' '+it.c).indexOf(q)>=0; });
+    var out=items.filter(function(it){ return !q||key(it.t+' '+it.r+' '+it.c+' '+cleanTags(it.tg).join(' ')).indexOf(q)>=0; });
     var more=out.length>200; out=out.slice(0,200);
     host.innerHTML=out.length?out.map(function(it){ var h=have[lc(it.t)];
       return '<label class="it'+(h?' have':'')+'" role="listitem"><input type="checkbox" data-id="'+esc(it.id)+'"'+(sel[it.id]?' checked':'')+(h?' disabled':'')+'>'
-        +'<span><span class="t">'+esc(it.t)+'</span><br><span class="m">'+esc([it.r,it.tl,it.c].filter(Boolean).join(' · '))+(h?' · already in your archive':'')+'</span></span></label>'; }).join('')
+        +'<span><span class="t">'+esc(it.t)+'</span><br><span class="m">'+esc([it.r,it.tl,it.c].filter(Boolean).join(' · '))+(it.au?' · 🎵 audio':'')+(it.np?' · no notation':'')+cleanTags(it.tg).map(function(t){return ' · #'+esc(t);}).join('')+(h?' · already in your archive':'')+'</span></span></label>'; }).join('')
         +(more?'<div class="empty">Showing the first 200 - type to narrow the list.</div>':'')
       :'<div class="empty">'+(items.length?'No matches.':'The master list is empty.')+'</div>';
   }
@@ -911,10 +956,10 @@ function createBundle(rootId,spec){
       return readIndex(rootId).then(function(idx){
         var got={}; ((idx&&idx.items)||[]).forEach(function(it){ got[lc(it.title)]=1; });
         return ready.reduce(function(chain,it){ return chain.then(function(){
-          if(got[lc(it.t)]||!safeId(it.n)){ had++; return; }
+          if(got[lc(it.t)]||(!safeId(it.n)&&!cleanMedia(it.m).length)){ had++; return; }
           got[lc(it.t)]=1;
           return createBundle(rootId,{type:'piece',title:it.t,raga:it.r||'',tala:it.tl||'',composer:it.c||'',pieceType:it.ty||'',
-            notationUrl:'https://drive.google.com/file/d/'+safeId(it.n)+'/view'}).then(function(bid){ return addToIndex(rootId,bid); }).then(function(){ added++; });
+            notationUrl:safeId(it.n)?('https://drive.google.com/file/d/'+safeId(it.n)+'/view'):'',tags:it.tg,mediaLinks:it.m}).then(function(bid){ return addToIndex(rootId,bid); }).then(function(){ added++; });
         }); },Promise.resolve());
       });
     }).then(function(){ return svc('delivered',{keys:ready.map(function(it){return it.key;})}); })
@@ -941,7 +986,7 @@ function createBundle(rootId,spec){
   var m=document.createElement('div'); m.id='kAdd';
   m.innerHTML='<div class="box"><h3>Add to your archive</h3>'
    +'<div class="file" id="kaFile">No file chosen</div>'
-   +'<label>What is it?</label><select id="kaType"><option value="piece">Piece (notation)</option><option value="audio">Audio</option><option value="note">Note</option><option value="link">Link</option><option value="other">Other</option></select>'
+   +'<label>What is it?</label><select id="kaType"><option value="piece">Piece (notation)</option><option value="audio">Audio recording</option><option value="video">Video</option><option value="note">Note</option><option value="link">Link</option><option value="other">Other</option></select>'
    +'<label>Name</label><input id="kaName" placeholder="e.g. Vatapi Ganapatim">'
    +'<div id="kaPiece"><label>Raga</label><input id="kaRaga" list="kaRagaL" placeholder="raga">'
    +'<label>Tala</label><input id="kaTala" list="kaTalaL" placeholder="tala">'
@@ -956,7 +1001,7 @@ function createBundle(rootId,spec){
    +'<div class="row"><button class="no" id="kaCancel">Cancel</button><button class="go" id="kaGo">Create bundle</button></div></div>';
   document.body.appendChild(m);
   var picked={fileId:'',fileName:''}, _targetRoot=null;
-  function toggle(){ var t=document.getElementById('kaType').value; document.getElementById('kaPiece').style.display=(t==='piece')?'':'none'; document.getElementById('kaChild').style.display=(t==='piece')?'none':''; }
+  function toggle(){ var t=document.getElementById('kaType').value; var nl=document.getElementById('kaName'); if(nl){ nl.placeholder=(t==='audio'||t==='video')?'a label, e.g. My practice, 12 Oct':'e.g. Vatapi Ganapatim'; } document.getElementById('kaPiece').style.display=(t==='piece')?'':'none'; document.getElementById('kaChild').style.display=(t==='piece')?'none':''; }
   document.getElementById('kaType').onchange=toggle;
   vGuard('kaRaga',VOCAB.ragas); vGuard('kaTala',VOCAB.talas); vGuard('kaComp',VOCAB.composers);
   document.getElementById('kaCancel').onclick=function(){ m.style.display='none'; };
@@ -1354,6 +1399,7 @@ window.openEdit=function(fid){
   document.getElementById('edTala').value=it.tala||'';
   document.getElementById('edComposer').value=it.composer||'';
   document.getElementById('edType').value=it.pieceType||'';
+  document.getElementById('edTags').value=cleanTags(it.tags).join(', ');
   /* Clears any warning left over from the last piece edited, and flags a legacy
      value on open. Silent for anything already canonical, since vNear treats an
      exact hit as the term itself rather than a collision. */
@@ -1382,7 +1428,7 @@ function _editSave(){
   readBundle(id).then(function(b){
     var meta=(b&&b.meta)||{schema:'kms-bundle/1',type:'piece',id:id,files:[],items:[]};
     meta.type=meta.type||'piece'; meta.title=g('edTitle'); meta.meta=meta.meta||{};
-    meta.meta.raga=g('edRaga'); meta.meta.tala=g('edTala'); meta.meta.composer=g('edComposer'); meta.meta.pieceType=g('edType');
+    meta.meta.raga=g('edRaga'); meta.meta.tala=g('edTala'); meta.meta.composer=g('edComposer'); meta.meta.pieceType=g('edType'); meta.meta.tags=cleanTags(g('edTags'));
     meta.updated=new Date().toISOString();
     return driveUpdateBundleJson(id,meta);
   }).then(function(){ return addToIndex(root,id); })
@@ -1477,6 +1523,7 @@ function _editRemove(){
    +'<label>Tala</label><input id="edTala" list="edTalaL">'
    +'<label>Composer</label><input id="edComposer" list="edCompL">'
    +'<label>Type</label><input id="edType" list="edTypeL">'
+   +'<label>Tags</label><input id="edTags" placeholder="e.g. Sankeerthana, Navaratri" autocomplete="off"><div class="hint">Separate tags with commas. Clear the box to remove them all.</div>'
    +edl('edRagaL',VOCAB.ragas)+edl('edTalaL',VOCAB.talas)
    +edl('edCompL',VOCAB.composers)+edl('edTypeL',VOCAB.types)
    +'<div class="sep"></div><label>Notation</label><div class="nota" id="edNota">—</div>'
