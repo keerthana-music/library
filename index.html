@@ -374,12 +374,35 @@ function authInit(){
   var g=document.createElement('script'); g.src='https://accounts.google.com/gsi/client'; g.async=true;
   g.onload=function(){
     AS.tokenClient=google.accounts.oauth2.initTokenClient({client_id:AUTH.CLIENT_ID,scope:AUTH.SCOPES,
-      callback:function(resp){ if(resp&&resp.access_token) onToken(resp.access_token); }});
+      callback:function(resp){ if(resp&&resp.access_token){ _noteDriveGrant(resp); onToken(resp.access_token); } else signingIn(false); },
+      error_callback:function(e){ console.log('sign-in closed',e); signingIn(false); }});
     renderAuthBar();
   };
   document.head.appendChild(g);
 }
-function authSignIn(){ if(AS.tokenClient) AS.tokenClient.requestAccessToken(); }
+function authSignIn(){ if(AS.signingIn||!AS.tokenClient) return; signingIn(true); AS.tokenClient.requestAccessToken(); }
+/* Between Google's popup closing and the members check answering there is a gap of a few seconds
+   (the Apps Script service may be waking up). Grey out every Sign-in button and say so, so nobody
+   presses it again. Cleared on success (setRole / role chooser), on not-a-member, or if the popup
+   is closed. A 90 s safety net re-enables the button if nothing comes back at all. */
+var _signTimer=null;
+function signingIn(on){
+  AS.signingIn=!!on; clearTimeout(_signTimer);
+  if(on) _signTimer=setTimeout(function(){ signingIn(false); },90000);
+  document.querySelectorAll('button[onclick="authSignIn()"]').forEach(function(b){
+    if(!b.dataset.label) b.dataset.label=b.textContent;
+    b.disabled=!!on; b.style.opacity=on?'.55':''; b.style.cursor=on?'wait':'';
+    b.textContent=on?'Signing in…':b.dataset.label; });
+  var lm=document.getElementById('landMsg');
+  if(lm){ if(on){ lm.innerHTML='Signing you in… this can take a few seconds.'; lm.style.display=''; }
+          else if(lm.innerHTML.indexOf('Signing you in')===0) lm.style.display='none'; }
+}
+/* Google returns previously granted scopes with each token (incremental auth). If this account has
+   already allowed full Drive access (Teacher/Admin), note it so choosing Teacher/Admin does not
+   open a second Google popup. */
+function _noteDriveGrant(resp){
+  try{ if(google.accounts.oauth2.hasGrantedAllScopes(resp,'https://www.googleapis.com/auth/drive')) _driveScoped=true; }catch(e){}
+}
 /* Sign out clears local state only (no token revoke), so signing back in doesn't re-prompt for consent every time. */
 function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null;_driveScoped=false; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
 function onToken(tok){
@@ -391,7 +414,7 @@ function onToken(tok){
      if(!m||!m.ok) throw new Error('members check: '+(m&&m.error));
      if(!m.member){ notMember(AS.email); return; }
      AS.maxRole=(m.role==='teacher'||m.role==='admin')?m.role:'user';
-     AS.role=null; renderAuthBar();
+     AS.role=null; signingIn(false); renderAuthBar();
      var pre=_asOverride();
      if(AS.maxRole==='user') setRole('user');
      else if(pre && roleRank(pre)<=roleRank(AS.maxRole)) setRole(pre);
@@ -409,7 +432,7 @@ function svc(action,extra,tok){
 }
 function checkMember(tok){ return svc('check',null,tok); }
 function notMember(email,failed){
-  AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null;
+  signingIn(false); AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null;
   renderAuthBar(); applyAuthView();
   var el=document.getElementById('landMsg'); if(!el) return;
   el.innerHTML=failed
@@ -429,7 +452,7 @@ function renderAuthBar(){
     var mf=onMaster()?'<button onclick="changeMasterFolder()" title="Change the master archive folder">⌂ Master folder</button><button onclick="rebuildMaster()" title="Rebuild the master index by rescanning Drive">↻</button>':'';
     bar.innerHTML='<span class="who">'+esc(AS.email)+' · '+label+'</span>'+(AS.role?'<button onclick="openAdd()">＋ Add</button><button onclick="openImport()">⇪ Import</button>':'')+mf+sw+'<button onclick="authSignOut()">Sign out</button>';
   } else {
-    bar.innerHTML='<button onclick="authSignIn()">Sign in with Google</button>';
+    bar.innerHTML='<button onclick="authSignIn()">Sign in with Google</button>'; if(AS.signingIn) signingIn(true);
   }
 }
 /* Signed out → landing page; signed in → tabs, defaulting to Archive (the handler renders
@@ -675,7 +698,9 @@ function ensureDriveScope(cb){
       callback:function(resp){ if(resp&&resp.access_token){ AS.token=resp.access_token; _driveScoped=true; cb(true); } else { cb(false); } },
       error_callback:function(e){ console.log('elevate declined',e); cb(false); }
     });
-    dc.requestAccessToken();
+    /* login_hint + prompt:'' : reuse the account already signed in, no account chooser; Google
+       only shows a screen if Drive access has never been granted on this account. */
+    dc.requestAccessToken({prompt:'',login_hint:AS.email||undefined});
   }catch(e){ console.log('elevate err',e); cb(false); }
 }
 function loadMaster(cb){
