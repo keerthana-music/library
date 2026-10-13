@@ -279,7 +279,41 @@ function shareBundle(fid){
   var nurl=it.notationUrl||(it.notationId?('https://drive.google.com/file/d/'+it.notationId+'/view'):'');
   if(it.notationId){ try{ driveMakePublic(it.notationId); }catch(e){} }
   var payload={t:it.title||'',r:it.raga||'',tl:it.tala||'',c:it.composer||'',ty:it.pieceType||'',n:nurl,tg:cleanTags(it.tags)};
-  _shareLink(it.title||'piece', location.origin+location.pathname+'?import='+_b64(payload));
+  var media=cleanMedia(it.media).slice(0,20);
+  var send=function(chosen){
+    if(chosen.length){ payload.m=chosen.map(function(x){ return {id:x.id,label:String(x.label||'').slice(0,60),mime:x.mime}; });
+      chosen.forEach(function(x){ try{ driveMakePublic(x.id); }catch(e){} }); }
+    _shareLink(it.title||'piece', location.origin+location.pathname+'?import='+_b64(payload));
+  };
+  /* Recordings (2026-10-13). From the Master archive the school's recordings all go, in one tap.
+     From a personal archive the sharer ticks which recordings to include; none are ticked to start,
+     so a private practice recording is never shared by accident. Ticked files become viewable by
+     anyone with the link, the same way the notation does. Web links in Notes are never shared. */
+  if(!media.length || onMaster()) return send(media);
+  _shareChooser(it.title||'piece', media, send);
+}
+function _shareChooser(title,media,send){
+  var m=document.getElementById('kShare');
+  if(!m){ m=document.createElement('div'); m.id='kShare'; document.body.appendChild(m);
+    var css=document.createElement('style');
+    css.textContent="#kShare{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:61;padding:16px}"
+     +"#kShare .box{background:#fff;border-radius:16px;max-width:400px;width:100%;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-height:90vh;overflow:auto}"
+     +"#kShare h3{margin:0 0 4px;color:#7a1f2b;font-size:18px}#kShare p{margin:0 0 12px;color:#8a7d70;font-size:12.5px}"
+     +"#kShare label{display:flex;gap:10px;align-items:center;padding:9px 8px;border-radius:8px;background:#faf5ec;margin:4px 0;font-size:14px;cursor:pointer}"
+     +"#kShare input{width:18px;height:18px;accent-color:#7a1f2b}#kShare .row{display:flex;gap:8px;margin-top:14px}"
+     +"#kShare .row button{flex:1;border:0;border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer}"
+     +"#kShare .go{background:#7a1f2b;color:#fff}#kShare .no{background:#f3e9d6;color:#6b5330}";
+    document.head.appendChild(css); }
+  m.innerHTML='<div class="box"><h3>Share “'+esc(title)+'”</h3><p>The notation is always included. Tick any recordings to share with it - the rest stay private.</p>'
+    +'<label><input type="checkbox" checked disabled> 📄 Notation</label>'
+    +media.map(function(x,i){ return '<label><input type="checkbox" data-i="'+i+'"> '+(/^video\//.test(x.mime)?'🎬':'🎵')+' '+esc(x.label||'Recording')+'</label>'; }).join('')
+    +'<div class="row"><button class="no" id="shNo">Cancel</button><button class="go" id="shGo">Share</button></div></div>';
+  m.style.display='flex';
+  document.getElementById('shNo').onclick=function(){ m.style.display='none'; };
+  document.getElementById('shGo').onclick=function(){
+    var chosen=[].filter.call(m.querySelectorAll('input[data-i]'),function(c){ return c.checked; }).map(function(c){ return media[+c.dataset.i]; });
+    m.style.display='none'; send(chosen);
+  };
 }
 function rm(i){con.splice(i,1);save();badges();rCon();reRender();}
 function mv(i,d){const j=i+d;if(j<0||j>=con.length)return;[con[i],con[j]]=[con[j],con[i]];save();rCon();}
@@ -358,13 +392,13 @@ function processImport(payload){
   /* A share link is text anyone can craft: keep only short plain strings, and only an https notation link. */
   if(!payload||typeof payload!=='object') return;
   var S=function(v,n){ return typeof v==='string'?v.trim().slice(0,n):''; };
-  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000)),tg:cleanTags(payload.tg)};
+  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000)),tg:cleanTags(payload.tg),m:cleanMedia(payload.m).slice(0,20)};
   if(!payload.t&&!payload.n) return;
   ensureArchiveRoot().then(function(rootId){
     return readIndex(rootId).then(function(idx){
       var have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
       if(payload.t && have[payload.t.toLowerCase()]){ if(window.toast)toast('“'+payload.t+'” is already in your archive'); return; }
-      var spec={type:'piece',title:payload.t||'shared piece',raga:payload.r||'',tala:payload.tl||'',composer:payload.c||'',pieceType:payload.ty||'',notationUrl:payload.n||'',tags:payload.tg};
+      var spec={type:'piece',title:payload.t||'shared piece',raga:payload.r||'',tala:payload.tl||'',composer:payload.c||'',pieceType:payload.ty||'',notationUrl:payload.n||'',tags:payload.tg,mediaLinks:payload.m};
       return createBundle(rootId,spec).then(function(topId){ return addToIndex(rootId,topId); }).then(function(){ _arcIdx=null; if(window.toast)toast('Added “'+(payload.t||'piece')+'” to your archive ✓'); if(AS.role==='user'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } });
     });
   }).catch(function(e){ console.log('import err',e); if(window.toast)toast('Could not import the shared piece'); });
