@@ -21,7 +21,7 @@ const boxes=[...$('kShare').querySelectorAll('input[data-i]')];
 ok(boxes.length===2 && boxes.every(b=>!b.checked),'both recordings listed, none ticked');
 boxes[0].checked=true; $('shGo').click();
 let p=payload();
-ok(p.m && p.m.length===1 && p.m[0].id==='R1','only the ticked recording goes in the link');
+ok(p.m && p.m.length===1 && p.m[0]==='R1','only the ticked recording goes in the link (as a bare ID)');
 ok(E('__pub').includes('R1') && !E('__pub').includes('R2'),'only the ticked recording is made link-viewable');
 ok(!JSON.stringify(p).includes('youtu'),'web links in notes are not shared');
 // personal share, nothing ticked
@@ -42,4 +42,9 @@ E(`window.__spec=null; ensureArchiveRoot=function(){return Promise.resolve('ROOT
    processImport({t:'bhajarE gOpAlam',n:'https://drive.google.com/file/d/N1/view',m:[{id:'R1',label:'Akka - class',mime:'audio/mpeg'},{id:'bad"id',label:'x'}]});`);
 await tick();
 const sp=E('__spec'); ok(sp && sp.mediaLinks.length===1 && sp.mediaLinks[0].id==='R1','recipient gets the shared recording (bad ids dropped)');
+// short links (2026-10-20): bare IDs, names looked up from Drive on the recipient's side
+E(`window.__spec=null; window.fetch=function(u){ return Promise.resolve({ok:true,json:function(){ return Promise.resolve(String(u).includes('R7')?{name:'Pallavi sangathi.mp3',mimeType:'audio/mpeg'}:{}); }}); };
+   processImport({t:'nIdu caraNamulE',m:['R7','R8','bad"id']});`);
+await tick(); await tick();
+const sp2=E('__spec'); ok(sp2 && sp2.mediaLinks.length===2 && sp2.mediaLinks[0].label==='Pallavi sangathi' && sp2.mediaLinks[1].label==='Recording','short link: recordings imported with their Drive names');
 if(fails) process.exitCode=1; else console.log('ALL SHARE-MEDIA TESTS PASSED');
