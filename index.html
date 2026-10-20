@@ -266,7 +266,7 @@ function driveMakePublic(fileId){ return fetch('https://www.googleapis.com/drive
 function _shareLink(title,url){
   var copied=false;
   try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url); copied=true; } }catch(e){}
-  if(navigator.share){ navigator.share({title:title||'The Keerthana App',text:'🎵 '+(title||'')+'  ·  The Keerthana App',url:url}).catch(function(){}); if(copied&&window.toast)toast('Link copied — or pick an app to share'); return; }
+  if(navigator.share){ navigator.share({title:title||'The Keerthana App',url:url}).catch(function(){}); if(copied&&window.toast)toast('Link copied — or pick an app to share'); return; }
   if(copied){ if(window.toast)toast('Share link copied — paste into WhatsApp / WhatsApp Web'); return; }
   window.prompt('Share this link:',url);
 }
@@ -281,8 +281,11 @@ function shareBundle(fid){
   var payload={t:it.title||'',r:it.raga||'',tl:it.tala||'',c:it.composer||'',ty:it.pieceType||'',n:nurl,tg:cleanTags(it.tags)};
   var media=cleanMedia(it.media).slice(0,20);
   var send=function(chosen){
-    if(chosen.length){ payload.m=chosen.map(function(x){ return {id:x.id,label:String(x.label||'').slice(0,60),mime:x.mime}; });
+    /* 2026-10-20: recordings travel as bare Drive IDs - labels made links too long for WhatsApp to
+       recognise. The recipient's app looks the names up (processImport). Empty fields are dropped. */
+    if(chosen.length){ payload.m=chosen.map(function(x){ return x.id; });
       chosen.forEach(function(x){ try{ driveMakePublic(x.id); }catch(e){} }); }
+    Object.keys(payload).forEach(function(k){ var v=payload[k]; if(v===''||(Array.isArray(v)&&!v.length)) delete payload[k]; });
     _shareLink(it.title||'piece', location.origin+location.pathname+'?import='+_b64(payload));
   };
   /* Recordings (2026-10-13). From the Master archive the school's recordings all go, in one tap.
@@ -392,9 +395,17 @@ function processImport(payload){
   /* A share link is text anyone can craft: keep only short plain strings, and only an https notation link. */
   if(!payload||typeof payload!=='object') return;
   var S=function(v,n){ return typeof v==='string'?v.trim().slice(0,n):''; };
-  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000)),tg:cleanTags(payload.tg),m:cleanMedia(payload.m).slice(0,20)};
-  if(!payload.t&&!payload.n) return;
-  ensureArchiveRoot().then(function(rootId){
+  var rawM=(Array.isArray(payload.m)?payload.m:[]).slice(0,20).map(function(x){ return typeof x==='string'?{id:x}:x; });
+  payload={t:S(payload.t,200),r:S(payload.r,100),tl:S(payload.tl,100),c:S(payload.c,150),ty:S(payload.ty,50),n:safeUrl(S(payload.n,2000)),tg:cleanTags(payload.tg),m:cleanMedia(rawM)};
+  if(!payload.t&&!payload.n&&!payload.m.length) return;
+  /* Short links carry only the recording IDs: fetch each file's name and type (they were made public by the sharer). */
+  var fillMedia=Promise.all(payload.m.map(function(x){
+    if(x.label&&x.mime) return x;
+    return fetch('https://www.googleapis.com/drive/v3/files/'+x.id+'?fields=name,mimeType&supportsAllDrives=true',{headers:driveHeaders()})
+      .then(function(r){ return r.ok?r.json():{}; }).catch(function(){ return {}; })
+      .then(function(d){ return {id:x.id,label:String(x.label||d.name||'Recording').replace(/\.[a-z0-9]{2,4}$/i,'').slice(0,80),mime:String(x.mime||d.mimeType||'audio/mpeg').slice(0,60)}; });
+  })).then(function(m){ payload.m=m; });
+  fillMedia.then(function(){ return ensureArchiveRoot(); }).then(function(rootId){
     return readIndex(rootId).then(function(idx){
       var have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
       if(payload.t && have[payload.t.toLowerCase()]){ if(window.toast)toast('“'+payload.t+'” is already in your archive'); return; }
