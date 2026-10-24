@@ -739,12 +739,26 @@ function rArchive(){
       :'<div class="empty">'+(items.length?'No matches.':'Nothing in your archive yet. Use ＋ Add to bring in notation, audio, or notes.')+'</div>';
   });
 }
+/* Guides (2026-10-24): PDFs and pages served with the app, so they open without signing in.
+   The team walkthrough is for Teachers and Admins only. */
+var GUIDES=[
+  {t:'Questions & answers',d:'Where your files live, security, master and personal archives, new devices, updates.',u:'faq.html'},
+  {t:'What you can do with KeesApp',d:'The launch slides: receiving, finding and sharing pieces, the concert planner, and what\'s next.',u:'guides/what-you-can-do.pdf'},
+  {t:'Team walkthrough',d:'For Teachers and Admins: how the master archive, roles and sharing fit together (August 2026).',u:'guides/team-walkthrough.pdf',team:1}
+];
+function _guidesHtml(){
+  var team=roleRank(AS.maxRole||AS.role||'user')>1;
+  return '<div class="secthead" style="margin:4px 0 8px;font-weight:700;color:var(--maroon)">Guides</div>'
+    +GUIDES.filter(function(g){ return !g.team||team; }).map(function(g){
+      return '<div class="card"><div class="main"><div class="piece">'+esc(g.t)+'</div><div class="composer">'+esc(g.d)+'</div></div>'
+        +'<div class="acts"><a class="barbtn" style="text-decoration:none;background:#f3e9d6;color:#6b5330" href="'+esc(g.u)+'" target="_blank" rel="noopener">Open</a></div></div>'; }).join('');
+}
 function rResources(){
   var host=document.getElementById('resList'); if(!host) return;
-  host.innerHTML=(onMaster()?'':'<div class="card reqcard"><div class="main"><div class="piece">Request from Master Archive</div>'
+  host.innerHTML=_guidesHtml()+'<div class="secthead" style="margin:16px 0 8px;font-weight:700;color:var(--maroon)">More</div>'+(onMaster()?'':'<div class="card reqcard"><div class="main"><div class="piece">Request from Master Archive</div>'
     +'<div class="composer">Browse the school\'s krithi list and ask for the pieces you are learning. Requests are reviewed each week.</div></div>'
     +'<div class="acts"><button class="barbtn primary" onclick="openRequest()">Browse</button></div></div>')
-    +'<div class="empty">Community resources — theory, transliteration guides, composer bios, newsletters, media — are coming soon. Resources you Add (notes, links) will also appear here.</div>';
+    +'<div class="empty">Community resources (theory, transliteration guides, composer bios, newsletters) are coming soon.</div>';
 }
 /* ---- Master Archive (Admin): read master-index.json from the granted master folder. Retires the spreadsheet for display. ---- */
 var _masterIdx=null,_masterRoot=null;
