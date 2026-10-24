@@ -57,6 +57,14 @@ a{color:var(--maroon)}
 <h2>Contact</h2>
 <p>Keerthana Music School, Melbourne: <a href="mailto:keesapphelp@gmail.com">keesapphelp@gmail.com</a>.</p>
 
-<a class="back" href="./">← Back to The Keerthana App</a>
+<a class="back" id="backLink" href="./">← Back to KeesApp</a>
+<script>
+/* Inside the app's guide viewer: close the viewer (Q&A) or step back to the Q&A (privacy/terms),
+   so the app underneath stays signed in. Opened on its own: go to the app. */
+(function(){ var a=document.getElementById('backLink'), framed=false; try{ framed=window.top!==window && !!window.parent.kGuideClose; }catch(e){}
+  if(!framed) return;
+  a.textContent='← Back'; a.onclick=function(e){ e.preventDefault(); history.back(); };
+})();
+</script>
 
 </div></div></body></html>

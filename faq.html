@@ -63,6 +63,14 @@ h2{margin-top:28px}
 <details><summary>It says I am not a member, or shows an empty archive.</summary><p>Check you signed in with the Google account you registered with: sign out and sign in again with that one. If you registered recently, the team approves new members each week; you will get a welcome email when you are in.</p></details>
 <h2>Help</h2>
 <details><summary>Who do I ask for help?</summary><p>Email KeesApp Help at <a href="mailto:keesapphelp@gmail.com">keesapphelp@gmail.com</a>. A volunteer from the school's IT team will get back to you.</p></details>
-<a class="back" href="./">← Back to The Keerthana App</a>
+<a class="back" id="backLink" href="./">← Back to KeesApp</a>
+<script>
+/* Inside the app's guide viewer: close the viewer (Q&A) or step back to the Q&A (privacy/terms),
+   so the app underneath stays signed in. Opened on its own: go to the app. */
+(function(){ var a=document.getElementById('backLink'), framed=false; try{ framed=window.top!==window && !!window.parent.kGuideClose; }catch(e){}
+  if(!framed) return;
+  a.onclick=function(e){ e.preventDefault(); window.parent.kGuideClose(); };
+})();
+</script>
 
 </div></div></body></html>

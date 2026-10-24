@@ -739,20 +739,55 @@ function rArchive(){
       :'<div class="empty">'+(items.length?'No matches.':'Nothing in your archive yet. Use ＋ Add to bring in notation, audio, or notes.')+'</div>';
   });
 }
-/* Guides (2026-10-24): PDFs and pages served with the app, so they open without signing in.
-   The team walkthrough is for Teachers and Admins only. */
+/* Guides (2026-10-24): served with the app. They open in an in-app viewer (a full-screen
+   panel with "Back to KeesApp"), not a new page, so the app stays signed in underneath:
+   leaving the page would reload it and ask for sign-in again. Slide decks are page images
+   (guides/<name>/p-NN.jpg, from the PDF) because iPhones show only page 1 of a PDF in a frame;
+   the PDF itself is offered as a download. The team walkthrough is for Teachers and Admins. */
 var GUIDES=[
-  {t:'Questions & answers',d:'Where your files live, security, master and personal archives, new devices, updates.',u:'faq.html'},
-  {t:'What you can do with KeesApp',d:'The launch slides: receiving, finding and sharing pieces, the concert planner, and what\'s next.',u:'guides/what-you-can-do.pdf'},
-  {t:'Team walkthrough',d:'For Teachers and Admins: how the master archive, roles and sharing fit together (August 2026).',u:'guides/team-walkthrough.pdf',team:1}
+  {t:'Questions & answers',d:'Where your files live, security, master and personal archives, new devices, updates.',page:'faq.html'},
+  {t:'What you can do with KeesApp',d:'The launch slides: receiving, finding and sharing pieces, the concert planner, and what\'s next.',dir:'guides/what-you-can-do/',n:11,pdf:'guides/what-you-can-do.pdf'},
+  {t:'Team walkthrough',d:'For Teachers and Admins: how the master archive, roles and sharing fit together (August 2026).',dir:'guides/team-walkthrough/',n:40,pdf:'guides/team-walkthrough.pdf',team:1}
 ];
 function _guidesHtml(){
   var team=roleRank(AS.maxRole||AS.role||'user')>1;
   return '<div class="secthead" style="margin:4px 0 8px;font-weight:700;color:var(--maroon)">Guides</div>'
-    +GUIDES.filter(function(g){ return !g.team||team; }).map(function(g){
+    +GUIDES.map(function(g,i){ if(g.team&&!team) return '';
       return '<div class="card"><div class="main"><div class="piece">'+esc(g.t)+'</div><div class="composer">'+esc(g.d)+'</div></div>'
-        +'<div class="acts"><a class="barbtn" style="text-decoration:none;background:#f3e9d6;color:#6b5330" href="'+esc(g.u)+'" target="_blank" rel="noopener">Open</a></div></div>'; }).join('');
+        +'<div class="acts"><button class="barbtn" style="background:#f3e9d6;color:#6b5330" onclick="openGuide('+i+')">Open</button></div></div>'; }).join('');
 }
+(function(){
+  var css=document.createElement('style');
+  css.textContent="#kGuide{position:fixed;inset:0;z-index:60;background:#fbf6ec;display:none;flex-direction:column}"
+   +"#kGuide .gbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#7a1f2b,#5c1620);color:#fff;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top))}"
+   +"#kGuide .gbar button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}"
+   +"#kGuide .gbar .gt{flex:1;font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+   +"#kGuide .gbar a{color:#fff;font-size:13px;opacity:.9;white-space:nowrap}"
+   +"#kGuide .gbody{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}"
+   +"#kGuide iframe{width:100%;height:100%;border:0;display:block}"
+   +"#kGuide .slides{max-width:1000px;margin:0 auto;padding:12px 10px 40px;display:flex;flex-direction:column;gap:12px}"
+   +"#kGuide .slides img{width:100%;height:auto;display:block;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.12);background:#fff;aspect-ratio:16/9}";
+  document.head.appendChild(css);
+  var w=document.createElement('div'); w.id='kGuide';
+  w.innerHTML='<div class="gbar"><button id="gBack">← Back to KeesApp</button><span class="gt" id="gTitle"></span><a id="gPdf" target="_blank" rel="noopener" download>PDF</a></div><div class="gbody" id="gBody"></div>';
+  document.body.appendChild(w);
+  var open=false;
+  function close(){ if(!open) return; open=false; w.style.display='none'; document.getElementById('gBody').innerHTML=''; document.body.style.overflow=''; }
+  window.openGuide=function(i){
+    var g=GUIDES[i]; if(!g) return;
+    document.getElementById('gTitle').textContent=g.t;
+    var pdf=document.getElementById('gPdf'); pdf.style.display=g.pdf?'':'none'; if(g.pdf) pdf.href=g.pdf;
+    var body=document.getElementById('gBody');
+    if(g.page) body.innerHTML='<iframe src="'+esc(g.page)+'?in=app" title="'+esc(g.t)+'"></iframe>';
+    else { var h=''; for(var k=1;k<=g.n;k++){ var nn=(g.n>=10&&k<10?'0':'')+k; h+='<img loading="lazy" alt="Slide '+k+'" src="'+esc(g.dir)+'p-'+nn+'.jpg">'; } body.innerHTML='<div class="slides">'+h+'</div>'; }
+    body.scrollTop=0; w.style.display='flex'; document.body.style.overflow='hidden'; open=true;
+    try{ history.pushState({kGuide:1},''); }catch(e){}
+  };
+  /* Back button (or the phone's own back gesture) closes the viewer. */
+  window.kGuideClose=function(){ if(!open) return; try{ if(history.state&&history.state.kGuide){ history.back(); return; } }catch(e){} close(); };
+  document.getElementById('gBack').onclick=window.kGuideClose;
+  window.addEventListener('popstate',function(){ close(); });
+})();
 function rResources(){
   var host=document.getElementById('resList'); if(!host) return;
   host.innerHTML=_guidesHtml()+'<div class="secthead" style="margin:16px 0 8px;font-weight:700;color:var(--maroon)">More</div>'+(onMaster()?'':'<div class="card reqcard"><div class="main"><div class="piece">Request from Master Archive</div>'
