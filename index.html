@@ -745,6 +745,8 @@ function rArchive(){
    (guides/<name>/p-NN.jpg, from the PDF) because iPhones show only page 1 of a PDF in a frame;
    the PDF itself is offered as a download. The team walkthrough is for Teachers and Admins. */
 var GUIDES=[
+  {t:'Video: installing KeesApp (iPhone)',d:'40 seconds: add KeesApp to your home screen from Safari.',video:'guides/videos/installing-iphone.mp4'},
+  {t:'Video: signing in for the first time',d:'1 minute: sign in with Google and allow Drive (tick the box!).',video:'guides/videos/signing-in.mp4'},
   {t:'Questions & answers',d:'Where your files live, security, master and personal archives, new devices, updates.',page:'faq.html'},
   {t:'What you can do with KeesApp',d:'The launch slides: receiving, finding and sharing pieces, the concert planner, and what\'s next.',dir:'guides/what-you-can-do/',n:11,pdf:'guides/what-you-can-do.pdf'},
   {t:'Team walkthrough',d:'For Teachers and Admins: how the master archive, roles and sharing fit together (August 2026).',dir:'guides/team-walkthrough/',n:40,pdf:'guides/team-walkthrough.pdf',team:1}
@@ -779,6 +781,7 @@ function _guidesHtml(){
     var pdf=document.getElementById('gPdf'); pdf.style.display=g.pdf?'':'none'; if(g.pdf) pdf.href=g.pdf;
     var body=document.getElementById('gBody');
     if(g.page) body.innerHTML='<iframe src="'+esc(g.page)+'?in=app" title="'+esc(g.t)+'"></iframe>';
+    else if(g.video) body.innerHTML='<div class="slides"><video src="'+esc(g.video)+'" controls playsinline preload="metadata" style="width:100%;max-width:420px;margin:0 auto;display:block;border-radius:12px;background:#000"></video></div>';
     else { var h=''; for(var k=1;k<=g.n;k++){ var nn=(g.n>=10&&k<10?'0':'')+k; h+='<img loading="lazy" alt="Slide '+k+'" src="'+esc(g.dir)+'p-'+nn+'.jpg">'; } body.innerHTML='<div class="slides">'+h+'</div>'; }
     body.scrollTop=0; w.style.display='flex'; document.body.style.overflow='hidden'; open=true;
     try{ history.pushState({kGuide:1},''); }catch(e){}
