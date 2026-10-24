@@ -40,11 +40,11 @@ ok(!!E('__share'),'a piece without recordings shares straight away');
 E(`window.__spec=null; ensureArchiveRoot=function(){return Promise.resolve('ROOT');}; readIndex=function(){return Promise.resolve({items:[]});};
    createBundle=function(r,s){ window.__spec=s; return Promise.resolve('B1'); }; addToIndex=function(){return Promise.resolve();};
    processImport({t:'bhajarE gOpAlam',n:'https://drive.google.com/file/d/N1/view',m:[{id:'R1',label:'Akka - class',mime:'audio/mpeg'},{id:'bad"id',label:'x'}]});`);
-await tick();
+await tick(); $('kcSkip').click(); await tick();
 const sp=E('__spec'); ok(sp && sp.mediaLinks.length===1 && sp.mediaLinks[0].id==='R1','recipient gets the shared recording (bad ids dropped)');
 // short links (2026-10-20): bare IDs, names looked up from Drive on the recipient's side
 E(`window.__spec=null; window.fetch=function(u){ return Promise.resolve({ok:true,json:function(){ return Promise.resolve(String(u).includes('R7')?{name:'Pallavi sangathi.mp3',mimeType:'audio/mpeg'}:{}); }}); };
    processImport({t:'nIdu caraNamulE',m:['R7','R8','bad"id']});`);
-await tick(); await tick();
+await tick(); await tick(); $('kcSkip').click(); await tick();
 const sp2=E('__spec'); ok(sp2 && sp2.mediaLinks.length===2 && sp2.mediaLinks[0].label==='Pallavi sangathi' && sp2.mediaLinks[1].label==='Recording','short link: recordings imported with their Drive names');
 if(fails) process.exitCode=1; else console.log('ALL SHARE-MEDIA TESTS PASSED');

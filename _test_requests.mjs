@@ -45,7 +45,10 @@ ok(w.document.getElementById('kReq').style.display==='none','screen closes after
 w.eval('checkApproved()'); await tick();
 ok(w.document.getElementById('kPick').style.display==='flex' && w.document.getElementById('pkH').textContent.startsWith('2 approved'),'sign-in shows 2 approved pieces');
 w.document.getElementById('pkGo').click(); await tick(); await tick();
-const made=w.eval('__made'); ok(made.length===1 && made[0].title==='Vatapi Ganapatim' && made[0].notationUrl==='https://drive.google.com/file/d/FILE1/view','adds the new piece as a link bundle, skips the one already there');
+// 2026-10-24: copy-on-receive asks first; Skip keeps the old link-only behaviour
+ok(w.document.getElementById('kCopy') && w.document.getElementById('kCopy').style.display==='flex','asks to save own copies');
+w.document.getElementById('kcSkip').click(); await tick(); await tick();
+const made=w.eval('__made'); ok(made.length===1 && made[0].title==='Vatapi Ganapatim' && made[0].notationUrl==='https://drive.google.com/file/d/FILE1/view','Skip: adds the new piece as a link bundle, skips the one already there');
 const del=w.__calls.find(c=>c.action==='delivered'); ok(del && JSON.stringify(del.keys)==='["k1","k2"]','both marked delivered so the prompt does not repeat');
 ok(w.document.getElementById('kPick').style.display==='none','pickup screen closes');
 if(fails) process.exitCode=1; else console.log('ALL REQUEST TESTS PASSED');

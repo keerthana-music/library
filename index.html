@@ -405,12 +405,16 @@ function processImport(payload){
       .then(function(r){ return r.ok?r.json():{}; }).catch(function(){ return {}; })
       .then(function(d){ return {id:x.id,label:String(x.label||d.name||'Recording').replace(/\.[a-z0-9]{2,4}$/i,'').slice(0,80),mime:String(x.mime||d.mimeType||'audio/mpeg').slice(0,60)}; });
   })).then(function(m){ payload.m=m; });
+  /* 2026-10-24: the notation and recordings are copied into the recipient's own archive
+     (receivePiece); only files that could not be copied stay as links. */
   fillMedia.then(function(){ return ensureArchiveRoot(); }).then(function(rootId){
     return readIndex(rootId).then(function(idx){
       var have={}; if(idx&&idx.items) idx.items.forEach(function(it){ have[(it.title||'').toLowerCase()]=true; });
       if(payload.t && have[payload.t.toLowerCase()]){ if(window.toast)toast('“'+payload.t+'” is already in your archive'); return; }
-      var spec={type:'piece',title:payload.t||'shared piece',raga:payload.r||'',tala:payload.tl||'',composer:payload.c||'',pieceType:payload.ty||'',notationUrl:payload.n||'',tags:payload.tg,mediaLinks:payload.m};
-      return createBundle(rootId,spec).then(function(topId){ return addToIndex(rootId,topId); }).then(function(){ _arcIdx=null; if(window.toast)toast('Added “'+(payload.t||'piece')+'” to your archive ✓'); if(AS.role==='user'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } });
+      var p={t:payload.t,r:payload.r,tl:payload.tl,c:payload.c,ty:payload.ty,tg:payload.tg,nid:_driveIdOf(payload.n),nurl:payload.n||'',m:payload.m};
+      return grantRead([p.nid].concat(p.m.map(function(x){ return x.id; }))).then(function(ok){ return receivePiece(rootId,p,ok); })
+        .then(function(res){ return addToIndex(rootId,res.bid).then(function(){ return res; }); })
+        .then(function(res){ _arcIdx=null; if(window.toast)toast('Added “'+(payload.t||'piece')+'” to your archive ✓'+_copyNote(res)); if(AS.role==='user'){ var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); } });
     });
   }).catch(function(e){ console.log('import err',e); if(window.toast)toast('Could not import the shared piece'); });
 }
@@ -941,7 +945,7 @@ function createBundle(rootId,spec){
         meta:{raga:spec.raga||'',tala:spec.tala||'',composer:spec.composer||'',pieceType:spec.pieceType||'',remarks:'',aro:spec.aro||'',av:spec.av||'',parent:spec.parent||'',tags:cleanTags(spec.tags)},
         mediaLinks:cleanMedia(spec.mediaLinks),
         files:spec.fileName?[spec.fileName]:[],items:[],updated:new Date().toISOString()};
-      return (spec.fileId?driveMoveInto(spec.fileId,bid).then(function(){return driveMakePublic(spec.fileId).catch(function(){});}):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,bid);}).then(function(){return bid;});
+      return (spec.fileId?driveMoveInto(spec.fileId,bid).then(function(){return spec.noPublic?null:driveMakePublic(spec.fileId).catch(function(){});}):Promise.resolve()).then(function(){return driveWriteJson('bundle.json',meta,bid);}).then(function(){return bid;});
     });
   }
   /* Audio and video go into the piece's one "media" folder, which holds any number of
@@ -967,6 +971,82 @@ function createBundle(rootId,spec){
     });
   });
 }
+/* ---- Copy on receive (2026-10-24) -------------------------------------------------
+   A received piece (share link or approved master request) becomes real files in the
+   recipient's own Keerthana Archive, so it survives the sharer deleting theirs and can be
+   found in Drive without the app. Under drive.file the app can read only files it created or
+   the user picked, so files it cannot see yet are shown in the Google Picker (setFileIds):
+   the user ticks them and presses Select, which grants access, then the app copies them.
+   Anything not copied (Skip, cancel, a failed copy) stays a link, so nothing is lost. */
+function _driveIdOf(url){ var s=String(url||''), m=s.match(/\/d\/([A-Za-z0-9_-]{20,})/)||s.match(/[?&]id=([A-Za-z0-9_-]{20,})/); return m?m[1]:''; }
+function driveMeta(id){ return fetch('https://www.googleapis.com/drive/v3/files/'+id+'?fields=id,name,mimeType&supportsAllDrives=true',{headers:driveHeaders()})
+  .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; }); }
+function driveCopy(id,name,parentId){
+  var body={parents:[parentId]}; if(name) body.name=name;
+  return fetch('https://www.googleapis.com/drive/v3/files/'+id+'/copy?fields=id,name,mimeType&supportsAllDrives=true',{method:'POST',headers:{Authorization:'Bearer '+AS.token,'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; }); }
+function pickToGrant(ids,cb){
+  if(!ids.length||!AUTH.PICKER_KEY) return cb([]);
+  loadPicker(function(){
+    var view=new google.picker.DocsView(google.picker.ViewId.DOCS).setFileIds(ids.join(',')).setIncludeFolders(false);
+    var picker=new google.picker.PickerBuilder().enableFeature(google.picker.Feature.MULTISELECT_ENABLED).enableFeature(google.picker.Feature.SUPPORT_DRIVES)
+      .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID).addView(view)
+      .setTitle(ids.length===1?'Tick the file, then press Select':'Tick all '+ids.length+' files, then press Select')
+      .setCallback(function(d){
+        if(d.action===google.picker.Action.PICKED) cb((d.docs||[]).map(function(x){ return {id:x.id,name:x.name||'',mimeType:x.mimeType||''}; }));
+        else if(d.action===google.picker.Action.CANCEL) cb([]); }).build();
+    picker.setVisible(true);
+  });
+}
+/* A short explainer before the Picker: "Save your own copy" (Continue) or keep links (Skip). */
+function askCopy(n,cb){
+  var w=document.getElementById('kCopy');
+  if(!w){ w=document.createElement('div'); w.id='kCopy';
+    w.innerHTML='<div class="box"><h3>Save your own copy</h3><p class="sub" id="kcMsg"></p>'
+      +'<div class="ft"><span class="sp"></span><button class="no" id="kcSkip">Skip</button><button class="go" id="kcGo">Continue</button></div></div>';
+    document.body.appendChild(w); }
+  document.getElementById('kcMsg').textContent='So these stay yours even if the sender deletes theirs, the app saves a copy in your own Google Drive. Google will show '
+    +(n===1?'the file':'the '+n+' files')+': tick '+(n===1?'it':'them all')+' and press Select.';
+  w.style.display='flex';
+  document.getElementById('kcGo').onclick=function(){ w.style.display='none'; cb(true); };
+  document.getElementById('kcSkip').onclick=function(){ w.style.display='none'; cb(false); };
+}
+/* Which of these ids can the app read? Probe each; any it cannot see go through askCopy + Picker.
+   Resolves to {id: {id,name,mimeType}} for the readable ones. */
+function grantRead(ids){
+  ids=ids.filter(function(id,i){ return id&&ids.indexOf(id)===i; });
+  return Promise.all(ids.map(driveMeta)).then(function(ms){
+    var ok={}, need=[]; ids.forEach(function(id,i){ if(ms[i]&&ms[i].id) ok[id]=ms[i]; else need.push(id); });
+    if(!need.length) return ok;
+    return new Promise(function(res){ askCopy(need.length,function(go){
+      if(!go) return res(ok);
+      pickToGrant(need,function(docs){ docs.forEach(function(d){ if(need.indexOf(d.id)>=0) ok[d.id]=d; }); res(ok); });
+    }); });
+  });
+}
+/* File one received piece p = {t,r,tl,c,ty,tg, nid (Drive id of the notation or ''), nurl (link
+   fallback), m:[{id,label,mime}]}: copy every readable file, build the piece bundle with the
+   notation copy inside and recordings in its media folder, keep links for the rest. */
+function receivePiece(rootId,p,ok){
+  var copies={}, ids=[p.nid].concat(p.m.map(function(x){ return x.id; })).filter(function(id){ return id&&ok[id]; });
+  return ids.reduce(function(ch,id,i){ return ch.then(function(){
+    if(window.toast&&ids.length>1) toast('Saving copies… '+(i+1)+' of '+ids.length);
+    return driveCopy(id,ok[id].name,rootId).then(function(c){ if(c&&c.id) copies[id]=c; });
+  }); },Promise.resolve()).then(function(){
+    var nc=p.nid&&copies[p.nid];
+    var spec={type:'piece',title:p.t||'shared piece',raga:p.r||'',tala:p.tl||'',composer:p.c||'',pieceType:p.ty||'',tags:p.tg,noPublic:true,
+      notationUrl:nc?'':(p.nurl||''),fileId:nc?nc.id:'',fileName:nc?nc.name:'',
+      mediaLinks:p.m.filter(function(x){ return !copies[x.id]; })};
+    return createBundle(rootId,spec).then(function(bid){
+      var mc=p.m.filter(function(x){ return copies[x.id]; });
+      return mc.reduce(function(ch,x){ return ch.then(function(){ var c=copies[x.id];
+        return createBundle(rootId,{type:/^video\//.test(c.mimeType||x.mime||'')?'video':'audio',parentTitle:spec.title,parentRaga:spec.raga,
+          title:(x.label&&x.label!=='Recording')?x.label:_mediaLabel(c.name),fileId:c.id,fileName:c.name}); }); },Promise.resolve())
+        .then(function(){ return {bid:bid,copied:Object.keys(copies).length,linked:(p.nid&&!nc?1:0)+spec.mediaLinks.length}; });
+    });
+  });
+}
+function _copyNote(r){ return r.linked?(r.copied?' · '+r.linked+' file'+(r.linked===1?'':'s')+' kept as link'+(r.linked===1?'':'s'):' (as links, no copies saved)'):''; }
 /* ---- Request from Master Archive (2026-10-11) -------------------------------------
    Users browse a names-only list of MASTER served by the members script, tick pieces and send a
    request; Akka's team decides in the admin Sheet. Approved pieces are picked up here at sign-in
@@ -987,7 +1067,13 @@ function createBundle(rootId,spec){
    +"#kReq .ft,#kPick .ft{display:flex;gap:8px;align-items:center}#kReq .ft .n{flex:1;font-size:13px;color:#6b5f55}"
    +"#kReq .ft button,#kPick .ft button{border:0;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:600;cursor:pointer}"
    +"#kReq .go,#kPick .go{background:#7a1f2b;color:#fff}#kReq .go:disabled{opacity:.45;cursor:default}#kReq .no,#kPick .no{background:#f3e9d6;color:#6b5330}"
-   +"#kPick .ft .sp{flex:1}";
+   +"#kPick .ft .sp{flex:1}"
+   +"#kCopy{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:57;padding:16px}"
+   +"#kCopy .box{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,.3);display:flex;flex-direction:column;gap:12px}"
+   +"#kCopy h3{margin:0;color:#7a1f2b;font-size:19px}#kCopy .sub{font-size:14px;color:#4f443b;margin:0;line-height:1.5}"
+   +"#kCopy .ft{display:flex;gap:8px;align-items:center}#kCopy .ft .sp{flex:1}"
+   +"#kCopy .ft button{border:0;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:600;cursor:pointer}"
+   +"#kCopy .go{background:#7a1f2b;color:#fff}#kCopy .no{background:#f3e9d6;color:#6b5330}";
   document.head.appendChild(css);
   var m=document.createElement('div'); m.id='kReq';
   m.innerHTML='<div class="box"><h3>Request from Master Archive</h3>'
@@ -1046,21 +1132,30 @@ function createBundle(rootId,spec){
   };
   document.getElementById('pkLater').onclick=function(){ p.style.display='none'; };
   document.getElementById('pkGo').onclick=function(){
-    var b=this; b.disabled=true; b.textContent='Adding…'; var added=0, had=0;
+    /* 2026-10-24: approved pieces are copied into the user's own archive (receivePiece). One
+       Picker round covers every file of every piece; anything not copied stays a link. */
+    var b=this; b.disabled=true; b.textContent='Adding…'; var added=0, had=0, tot={copied:0,linked:0};
+    p.style.display='none';
     ensureArchiveRoot().then(function(rootId){
       return readIndex(rootId).then(function(idx){
         var got={}; ((idx&&idx.items)||[]).forEach(function(it){ got[lc(it.title)]=1; });
-        return ready.reduce(function(chain,it){ return chain.then(function(){
-          if(got[lc(it.t)]||(!safeId(it.n)&&!cleanMedia(it.m).length)){ had++; return; }
+        var todo=[]; ready.forEach(function(it){
+          var nid=safeId(it.n), m=cleanMedia(it.m);
+          if(got[lc(it.t)]||(!nid&&!m.length)){ had++; return; }
           got[lc(it.t)]=1;
-          return createBundle(rootId,{type:'piece',title:it.t,raga:it.r||'',tala:it.tl||'',composer:it.c||'',pieceType:it.ty||'',
-            notationUrl:safeId(it.n)?('https://drive.google.com/file/d/'+safeId(it.n)+'/view'):'',tags:it.tg,mediaLinks:it.m}).then(function(bid){ return addToIndex(rootId,bid); }).then(function(){ added++; });
-        }); },Promise.resolve());
+          todo.push({t:it.t,r:it.r||'',tl:it.tl||'',c:it.c||'',ty:it.ty||'',tg:it.tg,nid:nid,nurl:nid?('https://drive.google.com/file/d/'+nid+'/view'):'',m:m});
+        });
+        var all=[]; todo.forEach(function(x){ all.push(x.nid); x.m.forEach(function(y){ all.push(y.id); }); });
+        return (todo.length?grantRead(all):Promise.resolve({})).then(function(ok){
+          return todo.reduce(function(chain,x){ return chain.then(function(){
+            return receivePiece(rootId,x,ok).then(function(res){ tot.copied+=res.copied; tot.linked+=res.linked; return addToIndex(rootId,res.bid); }).then(function(){ added++; });
+          }); },Promise.resolve());
+        });
       });
     }).then(function(){ return svc('delivered',{keys:ready.map(function(it){return it.key;})}); })
     .then(function(){
-      p.style.display='none'; b.disabled=false; b.textContent='Add to my archive'; _arcIdx=null;
-      toast('Added '+added+' piece'+(added===1?'':'s')+(had?(' · '+had+' already in your archive'):'')+' ✓');
+      b.disabled=false; b.textContent='Add to my archive'; _arcIdx=null;
+      toast('Added '+added+' piece'+(added===1?'':'s')+(had?(' · '+had+' already in your archive'):'')+' ✓'+_copyNote(tot));
       var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click();
     }).catch(function(e){ console.log('pickup err',e); b.disabled=false; b.textContent='Add to my archive'; toast('Something went wrong - nothing lost, try again from the next sign-in'); });
   };

@@ -28,69 +28,74 @@ a{color:var(--maroon)}
 </header>
 <div class="wrap"><div class="doc">
 
-<p class="eff">Effective 24 August 2026</p>
+<p class="eff">Effective 22 October 2026</p>
 
-<p>The Keerthana App is a free web app made for the students, families and teachers of Keerthana Music School. It holds the school's repertoire of songs, the sheet music and notation that go with them, and lets you keep a personal library and plan concert programmes.</p>
+<p>The Keerthana App (KeesApp) is a free web app made by volunteers for the students, families and teachers of Keerthana Music School. It holds the school's repertoire, with notation and recordings, and lets each member keep their own archive of pieces and plan concert programmes.</p>
 
-<p>This policy explains what the app does with your information. The short version: the app has no server of its own and no database. Nothing you do in it is sent to us. Your personal library lives in your own browser and, if you sign in, in a single file in your own Google Drive.</p>
+<p>The short version: the app has no server or database of its own. Your archive lives in your own Google Drive. The school keeps only what you give it when you register or request pieces, in a Google Sheet that only the school's admins can see. Nothing is sold, used for advertising or tracked.</p>
 
 <h2>Who runs the app</h2>
 
 <p>Keerthana Music School, Melbourne, Australia. Questions about this policy or about your data: <a href="mailto:prabhakar.ranganathan@gmail.com">prabhakar.ranganathan@gmail.com</a>.</p>
 
-<h2>What we collect</h2>
+<h2>What the school keeps</h2>
 
-<p>We collect nothing. The app is a static website hosted on GitHub Pages. It has no backend, no database, no analytics, no advertising and no third-party trackers. We cannot see what you search for, what you star, or which songs you open.</p>
+<ul>
+  <li><strong>Your registration.</strong> When you register through the school's Google Form, we keep your name, your Google email address and your agreement to this policy, in a Google Sheet held in the school's Google account. Admins use it to approve members and to record each member's role (student, teacher or admin).</li>
+  <li><strong>Your requests.</strong> When you request pieces from the school's master archive, each request is recorded in the same Sheet with the date, your email, your name and the piece, so an admin can approve it.</li>
+  <li><strong>Emails from us.</strong> We use your email address to send you KeesApp messages only: your welcome and sign-in instructions, and the outcome of your requests.</li>
+</ul>
+
+<p>Only the school's admins can open the Sheet. It is not shared with anyone else and is used for nothing beyond running the app.</p>
 
 <h2>Signing in with Google</h2>
 
 <p>When you sign in, the app asks Google for the following, and uses each only as described:</p>
 
 <ul>
-  <li><strong>Your email address and basic profile</strong> (<code>openid</code>, <code>email</code>, <code>profile</code>) — to show you which account you are signed in as, and to decide whether you are a student, an admin or a teacher. The check happens in your browser against a list of email addresses for enrolled users built into the app. Your email is not transmitted to us or to anyone else every time you login i.e. we do not track use.</li>
-  <li><strong>Per-file access to your Google Drive</strong> (<code>drive.file</code>) — so the app can save your personal library. It creates one file, <code>keerthana-library.json</code>, in your Google Drive, holding your starred songs, your concert programmes and any material you have added yourself, so that these follow you between your phone and your computer. This permission lets the app see only files it created itself or that you explicitly picked; the rest of your Google Drive stays invisible to it.</li>
-  <li><strong>Full Google Drive access</strong> (<code>drive</code>) — requested only from teachers and admins, and only at the moment they first curate the shared archive. The school's music sheets are stored in a shared Drive folder that the app did not create, so per-file access cannot reach it. It is used solely to read and organise that archive.</li>
+  <li><strong>Your email address and basic profile</strong> (<code>openid</code>, <code>email</code>, <code>profile</code>). The app sends your sign-in to the school's members service (a small Google Apps Script attached to the registration Sheet). The service confirms with Google who you are, looks up your email in the members list, and answers only whether you are a member and in what role. It does not record when or how often you use the app.</li>
+  <li><strong>Access to files the app creates or you pick</strong> (<code>drive.file</code>). The app creates a folder called <code>Keerthana Archive</code> in your own Google Drive and keeps your pieces there: notation files, recordings you add, your tags and notes, and an index of the archive. When you import files, you choose them with Google's own file picker. This permission lets the app see only the files it created or that you picked; the rest of your Drive stays invisible to it.</li>
+  <li><strong>Full Google Drive access</strong> (<code>drive</code>), asked only of teachers and admins, and only when they first work on the school's master archive. That archive is a shared folder the app did not create, so per-file access cannot reach it. This access is used only to read and organise the master archive.</li>
 </ul>
 
-<p>The access token Google issues is held in memory for the duration of your visit and is discarded when you sign out or close the tab. We never see it.</p>
+<p>The access token Google issues is held in your browser for the visit and discarded when you sign out or close the app. The members service uses it once to confirm your identity and does not keep it.</p>
+
+<h2>Sharing pieces</h2>
+
+<ul>
+  <li><strong>Pieces approved from the master archive</strong> are shared with your Google email only, so the app can copy them into your archive.</li>
+  <li><strong>When you share a piece</strong> with someone, the link carries the piece's details (title, raga, tala, composer, tags) and, if you choose, recordings. The notation, and any recording you tick, are set to "anyone with the link can view" in your Drive, so the person you send it to can open them and save their own copy. Recordings you do not tick stay private. You can turn link sharing off for any file in Google Drive at any time.</li>
+  <li><strong>Pieces you receive</strong>, from the master archive or from another member, are copied into your own <code>Keerthana Archive</code> folder, so they stay yours even if the sender later deletes theirs. To allow this, Google's file chooser asks you once to select the files being copied.</li>
+</ul>
 
 <h2>Limited use of Google user data</h2>
 
-<p>The Keerthana App's use of information received from Google APIs adheres to the
-<a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Specifically: data obtained through these APIs is used only to provide and improve the features described above; it is never sold, never transferred to third parties, never used for advertising, and never read by humans except where you have asked us to help with a problem, where the law requires it, or for security purposes.</p>
+<p>The Keerthana App's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements. Data obtained through these APIs is used only to provide the features described above. It is never sold, never transferred to third parties, never used for advertising, and never read by people except where you ask us to help with a problem, where the law requires it, or for security.</p>
 
 <h2>What is stored on your device</h2>
 
-<p>The app keeps the following in your browser's local storage, on your device only:</p>
+<p>The app keeps a few things in your browser's local storage, on your device only: your starred pieces, your concert programmes and settings such as shruthi, and the identifiers of Drive folders the app uses, so it need not ask again. It also caches its own files so it opens quickly. You can clear all of this with your browser's "clear site data" setting.</p>
 
-<ul>
-  <li>your starred songs, concert programmes and any songs you have added yourself;</li>
-  <li>the identifiers of Drive folders you have pointed the app at, so it need not ask again.</li>
-</ul>
+<h2>Other services involved</h2>
 
-<p>A service worker also caches the app itself so that it opens without a connection. You can clear all of this at any time through your browser's "clear site data" setting.</p>
-
-<h2>Sharing</h2>
-
-<p>We do not share, sell or disclose your information, because we do not hold it. Two other parties are unavoidably involved: <strong>Google</strong>, when you sign in and when the app reads or writes your Drive file, under Google's own privacy policy; and <strong>GitHub</strong>, which serves the app's files and, like any web host, sees the requests your browser makes.</p>
+<p><strong>Google</strong> provides sign-in, Drive, the registration Form and Sheet, and the members service, under Google's own privacy policy. <strong>GitHub</strong> hosts the app's web pages and, like any web host, sees the requests your browser makes. The app has no analytics, advertising or tracking code.</p>
 
 <h2>Children</h2>
 
-<p>The app is used by school-age students. It collects no information about them beyond what is described above, and shows no advertising. Parents who would like their child's Drive file removed, or who have any concern, are welcome to write to the address above.</p>
+<p>Many of our students are children. A parent or guardian registers on their behalf or with them. The app collects nothing about students beyond what is described above and shows no advertising. Parents with any concern are welcome to write to the address above.</p>
 
 <h2>Removing your data</h2>
 
 <ul>
+  <li><strong>Leave the members list:</strong> write to the address above and we will delete your registration and request rows from the Sheet.</li>
   <li><strong>Revoke the app's access</strong> at <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a>.</li>
-  <li><strong>Delete your library</strong> by removing <code>keerthana-library.json</code> from your Google Drive.</li>
-  <li><strong>Clear the local copy</strong> using your browser's clear-site-data setting.</li>
+  <li><strong>Delete your archive</strong> by removing the <code>Keerthana Archive</code> folder from your Google Drive.</li>
+  <li><strong>Clear the local copy</strong> with your browser's clear-site-data setting.</li>
 </ul>
-
-<p>Because nothing is held on our side, these three steps remove everything.</p>
 
 <h2>Changes</h2>
 
-<p>If this policy changes, the revised version will appear on this page with a new effective date.</p>
+<p>If this policy changes, the new version will appear on this page with a new effective date, and members will be told by email of any significant change.</p>
 
 <a class="back" href="./">← Back to The Keerthana App</a>
 
