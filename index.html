@@ -1264,7 +1264,7 @@ function _copyNote(r){ return r.linked?(r.copied?' · '+r.linked+' file'+(r.link
    /* Filled in openAdd, not here: this markup is built once at load, when the
       archive index has not been fetched yet and CAT is still empty. */
    +'<datalist id="kaParentL"></datalist>'
-   +'<div class="row"><button class="no" id="kaCancel">Cancel</button><button class="go" id="kaGo">Create bundle</button></div></div>';
+   +'<div class="row"><button class="no" id="kaCancel">Cancel</button><button class="go" id="kaGo">Add to archive</button></div></div>';
   document.body.appendChild(m);
   var picked={fileId:'',fileName:''}, _targetRoot=null;
   function toggle(){ var t=document.getElementById('kaType').value; var nl=document.getElementById('kaName'); if(nl){ nl.placeholder=(t==='audio'||t==='video')?'a label, e.g. My practice, 12 Oct':'e.g. Vatapi Ganapatim'; } document.getElementById('kaPiece').style.display=(t==='piece')?'':'none'; document.getElementById('kaChild').style.display=(t==='piece')?'none':''; }
@@ -1285,12 +1285,12 @@ function _copyNote(r){ return r.linked?(r.copied?' · '+r.linked+' file'+(r.link
       syncCat();
       var pr=CAT.find(function(r){return r.Piece===pt;}); spec.parentTitle=pt; spec.parentRaga=pr?pr.Raga:'';
     }
-    var go=document.getElementById('kaGo'); go.textContent='Creating…'; go.disabled=true;
+    var go=document.getElementById('kaGo'); go.textContent='Adding…'; go.disabled=true;
     createBundle(_targetRoot,spec)
       .then(function(topId){ return addToIndex(_targetRoot,topId); })
       .then(function(){ if(onMaster()) _masterIdx=null; else _arcIdx=null; toast(onMaster()?'Added to the master archive ✓':'Added to your archive ✓'); m.style.display='none'; var at=document.querySelector('.tabs button[data-tab="archive"]'); if(at) at.click(); })
       .catch(function(e){ console.log('add err',e); toast('Could not add — see console'); })
-      .then(function(){ go.textContent='Create bundle'; go.disabled=false; });
+      .then(function(){ go.textContent='Add to archive'; go.disabled=false; });
   };
   window.openAdd=function(){
     if(!AS.token){ toast('Sign in first'); return; }
