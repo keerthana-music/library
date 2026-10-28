@@ -6,7 +6,7 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="no">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Keerthana">
+<meta name="apple-mobile-web-app-title" content="KeesApp">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
 <script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 <style>
@@ -438,9 +438,26 @@ function authInit(){
       error_callback:function(e){ console.log('sign-in closed',e); signingIn(false); }});
     renderAuthBar();
   };
+  /* 2026-10-28: if Google's sign-in code can't load (no connection, or a blocker in Safari's
+     settings), say so instead of leaving a Sign-in button that does nothing. */
+  g.onerror=function(){ _gisFail(); };
+  setTimeout(function(){ if(!AS.tokenClient) _gisFail(); },12000);
   document.head.appendChild(g);
 }
-function authSignIn(){ if(AS.signingIn||!AS.tokenClient) return; signingIn(true); AS.tokenClient.requestAccessToken(); }
+function _gisFail(){
+  if(AS.tokenClient) return; _gisFailed=true;
+  var lm=document.getElementById('landMsg'); if(!lm) return;
+  lm.innerHTML='Google sign-in couldn\'t load. Please check you are online, then close KeesApp and open it again. '
+    +'On an iPhone, a content blocker in Settings, Safari, Extensions can also cause this. <a href="faq.html">Questions &amp; answers</a>';
+  lm.style.display='';
+}
+var _gisStart=Date.now(), _gisFailed=false;
+function authSignIn(){
+  if(!AS.tokenClient){
+    if(_gisFailed||Date.now()-_gisStart>12000) _gisFail();
+    else if(window.toast) toast('Google sign-in is still loading - try again in a moment');
+    return; }
+  if(AS.signingIn) return; signingIn(true); AS.tokenClient.requestAccessToken(); }
 /* Between Google's popup closing and the members check answering there is a gap of a few seconds
    (the Apps Script service may be waking up). Grey out every Sign-in button and say so, so nobody
    presses it again. Cleared on success (setRole / role chooser), on not-a-member, or if the popup
