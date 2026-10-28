@@ -464,7 +464,7 @@ function _noteDriveGrant(resp){
   try{ if(google.accounts.oauth2.hasGrantedAllScopes(resp,'https://www.googleapis.com/auth/drive')) _driveScoped=true; }catch(e){}
 }
 /* Sign out clears local state only (no token revoke), so signing back in doesn't re-prompt for consent every time. */
-function authSignOut(){ AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null;_driveScoped=false; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
+function authSignOut(){ _arcRootP=null; AS.token=null;AS.email=null;AS.role=null;AS.maxRole=null;AS.fileId=null; _arcIdx=null;_arcRoot=null;_masterIdx=null;_masterRoot=null;_driveScoped=false; renderAuthBar(); applyAuthView(); if(window.toast)toast('Signed out'); }
 function onToken(tok){
   AS.token=tok;
   fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:'Bearer '+tok}})
@@ -940,7 +940,7 @@ function driveCreateFolder(name,parentId){
 }
 function driveFindFolder(name,parentId){
   var q="name='"+String(name).replace(/'/g,"\\'")+"' and mimeType='application/vnd.google-apps.folder' and trashed=false"+(parentId?(" and '"+parentId+"' in parents"):'');
-  return fetch('https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&q='+encodeURIComponent(q),{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){return (d.files&&d.files[0])?d.files[0].id:null;});
+  return fetch('https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,name)&q='+encodeURIComponent(q),{headers:driveHeaders()}).then(function(r){return r.json();}).then(function(d){return (d.files&&d.files[0])?d.files[0].id:null;});
 }
 function driveEnsureFolder(name,parentId){ return driveFindFolder(name,parentId).then(function(id){ return id||driveCreateFolder(name,parentId); }); }
 function driveWriteJson(name,obj,parentId){
@@ -959,7 +959,14 @@ function driveMoveInto(fileId,folderId){
 }
 function safeName(s){ return String(s||'').replace(/[\/\\]+/g,'-').replace(/\s+/g,' ').trim(); }
 function pieceFolderName(title,raga){ return safeName(raga?(title+' - '+raga):title); }
-function ensureArchiveRoot(){ return driveEnsureFolder(AUTH.ARCHIVE_ROOT,null); }
+/* 2026-10-28: one shared lookup per sign-in. At first sign-in several parts of the app asked for the
+   archive folder at the same moment, each found none and each created one, leaving duplicate
+   "Keerthana Archive" folders. Now they all wait on the same request. */
+var _arcRootP=null;
+function ensureArchiveRoot(){
+  if(!_arcRootP) _arcRootP=driveEnsureFolder(AUTH.ARCHIVE_ROOT,null).then(function(id){ if(!id) _arcRootP=null; return id; },function(e){ _arcRootP=null; throw e; });
+  return _arcRootP;
+}
 var MASTER_ROOT_KEY='kms_master_root';
 function openFolderPicker(title,onPick){
   if(!AUTH.PICKER_KEY){ toast('Picker not configured'); return; }
