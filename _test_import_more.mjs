@@ -1,0 +1,33 @@
+/* Import on a phone: one file per pick, "+ Choose more" adds to the list (2026-10-28). */
+import fs from 'fs'; import path from 'path'; import { fileURLToPath } from 'url';
+const { JSDOM } = await import('jsdom');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const html = fs.readFileSync(path.join(here,'index.html'),'utf8');
+let fails=0; const ok=(c,m)=>{ console.log((c?'ok: ':'FAIL: ')+m); if(!c) fails++; };
+const tick=()=>new Promise(r=>setTimeout(r,40));
+const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://keerthana-music.github.io/library/',
+  beforeParse(w){ w.scrollTo=()=>{}; w.google={accounts:{oauth2:{initTokenClient:()=>({requestAccessToken(){}})}}}; w.fetch=()=>Promise.reject(new Error('stub')); }});
+const w=dom.window; await tick(); const E=s=>w.eval(s); const $=id=>w.document.getElementById(id);
+E(`AS.token='t'; AS.role='user'; onMaster=function(){return false;};
+   loadDict=function(cb){cb();}; catKeyMap=function(){}; vocab=function(){return {ragas:[],talas:[],composers:[]};};
+   matchFile=function(n){ return {title:n.replace(/\\.pdf$/,''),raga:'',tala:'',composer:'',match:'none'}; };
+   resolveTargetRoot=function(cb){cb('ROOT');}; toast=function(m){window.__t=m;};
+   window.__picks=[[{id:'P1aaaaaaaaaaaaaaaaaaaa',name:'Vatapi.pdf'}],[{id:'P2aaaaaaaaaaaaaaaaaaaa',name:'Ninnukori.pdf'}],[{id:'P1aaaaaaaaaaaaaaaaaaaa',name:'Vatapi.pdf'}],[{id:'P3aaaaaaaaaaaaaaaaaaaa',name:'Bhavanuta.pdf'}]];
+   openMultiPicker=function(cb){ cb(__picks.shift()); };
+   openImport();`);
+await tick();
+ok($('kImp2').style.display==='flex' && $('imList').querySelectorAll('.irow').length===1,'first pick: review screen with one file');
+ok($('imMore').style.display!=='none','"+ Choose more" shown for a personal import');
+$('imMore').click(); await tick();
+ok($('imList').querySelectorAll('.irow').length===2 && /Import 2 items/.test($('imGo').textContent),'Choose more adds the second file');
+$('imMore').click(); await tick();
+ok($('imList').querySelectorAll('.irow').length===2 && /Already/.test(E('__t')),'picking the same file again is not duplicated');
+$('imMore').click(); await tick();
+ok($('imList').querySelectorAll('.irow').length===3,'third file added');
+$('imList').querySelector('.imRm[data-i="1"]').click(); await tick();
+const names=[...$('imList').querySelectorAll('.fn')].map(x=>x.textContent);
+ok(names.length===2 && names[0].includes('Vatapi') && names[1].includes('Bhavanuta'),'remove takes one file out of the list');
+E(`window.__made=[]; createBundle=function(r,s){ __made.push(s.fileName); return Promise.resolve('B'); }; addToIndex=function(){return Promise.resolve();}; _arcIdx={items:[]};`);
+$('imGo').click(); for(let k=0;k<4;k++) await tick();
+ok(JSON.stringify(E('__made'))==='["Vatapi.pdf","Bhavanuta.pdf"]','Import brings in exactly the listed files');
+if(fails) process.exitCode=1; else console.log('ALL IMPORT-MORE TESTS PASSED');

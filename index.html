@@ -1460,6 +1460,9 @@ function openMultiPicker(onPick){
     var MIMES='application/pdf,application/vnd.google-apps.folder';
     var mine=new google.picker.DocsView(google.picker.ViewId.DOCS)
       .setIncludeFolders(true).setSelectFolderEnabled(false).setMimeTypes(MIMES).setLabel('My Drive');
+    /* 2026-10-28: phones pick one file at a time, so "Choose more" reopens the picker in the
+       folder the last file came from rather than at the top of My Drive. */
+    if(window._impLastParent){ try{ mine.setParent(window._impLastParent); }catch(e){} }
     var shared=new google.picker.DocsView(google.picker.ViewId.DOCS)
       .setIncludeFolders(true).setSelectFolderEnabled(false).setMimeTypes(MIMES)
       .setOwnedByMe(false).setLabel('Shared with me');
@@ -1470,8 +1473,10 @@ function openMultiPicker(onPick){
       .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
       .setOAuthToken(AS.token).setDeveloperKey(AUTH.PICKER_KEY).setAppId(AUTH.APP_ID)
       .addView(mine).addView(shared).addView(drives)
-      .setTitle('Open the folder, then select the PDF files to import (not the folder)')
-      .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){ onPick((data.docs||[]).map(function(d){return {id:d.id,name:d.name||''};})); } }).build();
+      .setTitle('Choose a PDF to import (on a computer you can tick several)')
+      .setCallback(function(data){ if(data.action===google.picker.Action.PICKED){
+        var ds=data.docs||[]; if(ds[0]&&ds[0].parentId) window._impLastParent=ds[0].parentId;
+        onPick(ds.map(function(d){return {id:d.id,name:d.name||''};})); } }).build();
     picker.setVisible(true);
   });
 }
@@ -1498,8 +1503,11 @@ window.openImport=function(){
     } else {
       /* User (drive.file): multi-select the PDF files themselves. */
       resolveTargetRoot(function(rootId){ if(!rootId){ toast('No target folder'); return; } _impRoot=rootId;
-        toast('Select the PDF files themselves — not the folder that contains them');
-        openMultiPicker(function(files){ if(!files||!files.length) return; _impRows(files.map(function(f){ return {kind:'new', file:f, prop:matchFile(f.name)}; }),0); });
+        toast('Choose a PDF - you can add more files on the next screen');
+        var toRows=function(files){ return (files||[]).map(function(f){ return {kind:'new', file:f, prop:matchFile(f.name)}; }); };
+        /* "+ Choose more" on the review screen reopens the picker and adds to the list. */
+        var more=function(add){ openMultiPicker(function(files){ if(files&&files.length) add(toRows(files)); }); };
+        openMultiPicker(function(files){ if(!files||!files.length) return; _impRows(toRows(files),0,more); });
       });
     }
   });
@@ -1552,7 +1560,7 @@ function walkImportFolder(folderId,cb){
    +"#kImp2 .go{background:#7a1f2b;color:#fff}#kImp2 .no{background:#f3e9d6;color:#6b5330}";
   document.head.appendChild(css);
   var m=document.createElement('div'); m.id='kImp2';
-  m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="go" id="imGo">Import</button></div></div><div id="imDL"></div>';
+  m.innerHTML='<div class="box"><div class="hd"><h3>Import to your archive</h3><div class="hm" id="imHm"></div></div><div class="list" id="imList"></div><div class="ft"><button class="no" id="imCancel">Cancel</button><button class="no" id="imMore" style="display:none">+ Choose more</button><button class="go" id="imGo">Import</button></div></div><div id="imDL"></div>';
   document.body.appendChild(m);
   var rows=[], _skipped=0, _dlDone=false;
   /* One shared set of datalists for the whole list rather than three per row — with a
@@ -1591,7 +1599,8 @@ function walkImportFolder(folderId,cb){
         +'<div class="flds"><input class="f-title" data-i="'+i+'" data-f="title" value="'+esc(p.title)+'" placeholder="piece">'
         +combo('raga',p.raga,'raga','imRagaL')
         +combo('tala',p.tala,'tala','imTalaL')
-        +combo('composer',p.composer,'composer','imCompL')+'</div>'+rw+alts+'</div>'; }).join('');
+        +combo('composer',p.composer,'composer','imCompL')+'</div>'+rw+alts
+        +(_moreFn?'<div style="text-align:right;margin-top:8px"><button class="altc imRm" data-i="'+i+'" title="Leave this file out">✕ Remove from list</button></div>':'')+'</div>'; }).join('');
     document.getElementById('imList').querySelectorAll('input').forEach(function(inp){ inp.addEventListener('input',function(){ rows[+inp.dataset.i].prop[inp.dataset.f]=inp.value; }); });
     /* One click swaps in an alternate candidate — faster than retyping a transliteration. */
     document.getElementById('imList').querySelectorAll('.altc').forEach(function(b){ b.addEventListener('click',function(){
@@ -1603,8 +1612,18 @@ function walkImportFolder(folderId,cb){
       r.prop.ragaAlt=(r.prop.ragaFile&&a.raga&&fzScore(normKey(a.raga),normKey(r.prop.ragaFile))<85)?a.raga:'';
       r.prop.pieceType=a.pieceType||''; r.prop.aro=a.aro||''; r.prop.av=a.av||''; r.prop.parent=a.parent||'';
       r.prop.match=(a.src==='catalog')?'catalog':'dictionary'; r.prop.score=Math.round(a.s||0); render(); }); });
+    document.getElementById('imList').querySelectorAll('.imRm').forEach(function(b){ b.addEventListener('click',function(){
+      rows.splice(+b.dataset.i,1); if(!rows.length){ m.style.display='none'; return; } render(); }); });
     document.getElementById('imGo').textContent='Import '+rows.length+' item'+(rows.length===1?'':'s');
+    document.getElementById('imMore').style.display=_moreFn?'':'none';
   }
+  document.getElementById('imMore').onclick=function(){
+    if(!_moreFn) return;
+    _moreFn(function(add){ var have={}; rows.forEach(function(r){ if(r.file) have[r.file.id]=1; });
+      var fresh=add.filter(function(r){ return !have[r.file.id]; });
+      if(!fresh.length){ toast('Already in the list'); return; }
+      rows=rows.concat(fresh); render(); });
+  };
   document.getElementById('imCancel').onclick=function(){ m.style.display='none'; };
   document.getElementById('imGo').onclick=function(){
     var go=document.getElementById('imGo'); go.disabled=true; var i=0, ok=0, dup=0, joined=0;
@@ -1634,7 +1653,8 @@ function walkImportFolder(folderId,cb){
       }
     })();
   };
-  window._impRows=function(rws,skipped){ rows=rws; _skipped=skipped||0; render(); m.style.display='flex'; };
+  var _moreFn=null;
+  window._impRows=function(rws,skipped,more){ rows=rws; _skipped=skipped||0; _moreFn=more||null; render(); m.style.display='flex'; };
 })();
 /* ---- Edit details + soft-delete (Remove from archive) ---- */
 var _editId=null;
